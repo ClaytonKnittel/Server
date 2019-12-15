@@ -1,6 +1,5 @@
 #include <ctype.h>
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -15,7 +14,7 @@
 #define DEFAULT_PORT 2345
 
 
-struct server {
+static struct server {
     struct sockaddr_in in;
 
     int sockfd;
@@ -23,7 +22,15 @@ struct server {
     // the size of the backlog on the port which
     // the server is listening 
     int backlog;
+} server;
+
+
+struct client {
+    
+
+    int connfd;
 };
+
 
 int init_server(struct server *server, int argc, char *argv[]) {
     int c, port;
@@ -70,7 +77,7 @@ int init_server(struct server *server, int argc, char *argv[]) {
     }
 
     server->in.sin_port = htons(port);
-    
+
     server->sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
     return 0;
@@ -83,18 +90,26 @@ void print_server_params(struct server *server) {
     port = ntohs(server->in.sin_port);
 
     inet_ntop(AF_INET, &(server->in.sin_addr), ip_str, INET_ADDRSTRLEN);
+
     vprintf("Server created on port %s:%d\n", ip_str, port);
 }
 
 void close_server(struct server *server) {
-    vprintf("Closing server\n");
+    sio_print("Closing server\n");
     close(server->sockfd);
+}
+
+void close_handler(int signum) {
+    close_server(&server);
+    exit(0);
 }
 
 int connect_server(struct server *server) {
 
-    if (bind(server->sockfd, (struct sockaddr *) &server->in, sizeof(struct sockaddr_in)) == -1) {
-        fprintf(stderr, "Unable to bind socket to port %d, reason %s\n", ntohs(server->in.sin_port), strerror(errno));
+    if (bind(server->sockfd, (struct sockaddr *) &server->in,
+                sizeof(struct sockaddr_in)) == -1) {
+        fprintf(stderr, "Unable to bind socket to port %d, reason %s\n",
+                ntohs(server->in.sin_port), strerror(errno));
         close_server(server);
         return -1;
     }
@@ -109,8 +124,9 @@ int connect_server(struct server *server) {
 }
 
 int main(int argc, char *argv[]) {
-    struct server server;
     int ret;
+
+    signal(SIGINT, close_handler);
 
     if ((ret = init_server(&server, argc, argv)) != 0) {
         return ret;
@@ -121,8 +137,30 @@ int main(int argc, char *argv[]) {
     }
     
     print_server_params(&server);
+    printf("Server: %s\n", get_ip_addr_str());
 
-    close_server(&server);
+    printf("Types:\nAF_INET: %x\nAF_UNIX: %x\nAF_NS: %x\nAF_IMPLINK: %x\n",
+            AF_INET, AF_UNIX, AF_NS, AF_IMPLINK);
+
+    while (1) {
+        struct sockaddr client;
+        socklen_t len = sizeof(client);
+        memset(&client, 0, len);
+        int cfd = accept(server.sockfd, &client, &len);
+
+        vprintf("Connected to client of type %hx, len %d\n\n",
+                client.sa_family, len);
+
+        char buf[129];
+        while (read(cfd, buf, 128) > 0) {
+            buf[128] = '\0';
+            printf("%s", buf);
+        }
+
+        vprintf("Closing connection %d\n", cfd);
+
+        close(cfd);
+    }
 
     return 0;
 }

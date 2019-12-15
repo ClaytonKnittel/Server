@@ -1,8 +1,17 @@
 #include <stdarg.h>
-#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include "vprint.h"
 
+#define UNLOCKED 1
+#define LOCKED 0
+
+#undef vprintf
+#undef vfprintf
+
 int vlevel = V1;
+
+static int sio_print_lock = UNLOCKED;
 
 int _vprintf(const char * restrict format, ...) {
     va_list arg;
@@ -13,7 +22,7 @@ int _vprintf(const char * restrict format, ...) {
     }
     else {
         va_start(arg, format);
-        ret = printf(format, arg);
+        ret = vprintf(format, arg);
         va_end(arg);
     }
 
@@ -29,7 +38,7 @@ int _vfprintf(FILE *stream, const char * restrict format, ...) {
     }
     else {
         va_start(arg, format);
-        ret = fprintf(stream, format, arg);
+        ret = vfprintf(stream, format, arg);
         va_end(arg);
     }
 
@@ -42,7 +51,7 @@ int _dbg_printf(const char * restrict format, ...) {
 
     if (vlevel == V2) {
         va_start(arg, format);
-        ret = printf(format, arg);
+        ret = vprintf(format, arg);
         va_end(arg);
     }
     else {
@@ -50,4 +59,12 @@ int _dbg_printf(const char * restrict format, ...) {
     }
 
     return ret;
+}
+
+int _sio_print(const char str[]) {
+    return write(STDOUT_FILENO, str, strlen(str));
+}
+
+int _sio_fprint(int fd, const char str[]) {
+    return write(fd, str, strlen(str));
 }
