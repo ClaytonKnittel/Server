@@ -2,8 +2,10 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <signal.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <string.h>
 
 #include "vprint.h"
@@ -99,8 +101,8 @@ void print_server_params(struct server *server) {
 
     inet_ntop(AF_INET, &(server->in.sin_addr), ip_str, INET_ADDRSTRLEN);
 
-    vprintf("Server created on port %s:%d\n", ip_str, port);
-    vprintf("Server: %s\n", get_ip_addr_str());
+    vprintf("Server listening to %s:%d\n", ip_str, port);
+    vprintf("Server listening on port: %s\n", get_ip_addr_str());
 }
 
 void close_server(struct server *server) {
@@ -148,10 +150,10 @@ int main(int argc, char *argv[]) {
     
     print_server_params(&server);
 
-    printf("Types:\nAF_INET: %x\nAF_UNIX: %x\nAF_NS: %x\nAF_IMPLINK: %x\n",
-            AF_INET, AF_UNIX, AF_NS, AF_IMPLINK);
+    printf("Types:\nAF_INET: %x\nAF_UNIX: %x\n",
+            AF_INET, AF_UNIX);
 
-    while (0) {
+    while (1) {
         struct sockaddr client;
         socklen_t len = sizeof(client);
         memset(&client, 0, len);

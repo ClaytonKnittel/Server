@@ -1,4 +1,4 @@
-CFLAGS=-c -O2 # -pthread
+CFLAGS=-c -O2 -std=c99 # -pthread
 SRC=$(wildcard *.c)
 OBJ=$(patsubst %.c,.obj/%.o,$(SRC))
 DEP=$(wildcard *.h)
