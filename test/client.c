@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
 
-    int port = 2345;
+    int port = 80;
 
     if (argc != 2) {
         printf("Usage: %s <ip address>:<port>\n", argv[0]);

@@ -11,6 +11,7 @@
 #include "vprint.h"
 #include "get_ip_addr.h"
 #include "http.h"
+#include "dmsg.h"
 
 #define DEFAULT_BACKLOG 50
 
@@ -28,10 +29,32 @@ static struct server {
 } server;
 
 
+
 struct client {
-    
     int connfd;
+
+    struct dmsg_list msg;
 };
+
+
+void usage(const char* program_name) {
+    printf("Usage: %s [options]\n\n"
+           "\t-p port\t\tthe port the server should listen on.\n"
+           "\t\t\tThe default is %d\n"
+           "\t-b backlog\tnumber of connections to backlog in\n"
+           "\t\t\tthe listen syscall. The default is %d\n"
+           "\n"
+           "\t-q\t\trun in quiet mode, which only prints errors\n"
+           "\t\t\t(note: to optimize out prints, #define QUIET\n"
+           "\t\t\tbefore including vprint.h)\n"
+           "\t-v\t\trun with verbose level 1, which prints all\n"
+           "\t\t\tv*prints, but not dbg_prints. This is the default\n"
+           "\t-V\t\trun with verbose level 2, which prints everything\n"
+           "\n",
+           program_name, DEFAULT_PORT, DEFAULT_BACKLOG);
+
+    exit(1);
+}
 
 
 void close_handler(int signum);
@@ -39,11 +62,7 @@ void close_handler(int signum);
 
 int init_server(struct server *server, int argc, char *argv[]) {
     int c, port;
-
-    // initialize const globals in http processor
-    http_init();
-
-    signal(SIGINT, close_handler);
+    char* endptr;
 
     server->backlog = DEFAULT_BACKLOG;
     port = DEFAULT_PORT;
@@ -53,13 +72,19 @@ int init_server(struct server *server, int argc, char *argv[]) {
     server->in.sin_family = AF_INET;
     server->in.sin_addr.s_addr = INADDR_ANY;
 
-    while ((c = getopt(argc, argv, "b:p:qvV")) != -1) {
+#define NUM_OPT \
+    strtol(optarg, &endptr, 0);                 \
+    if (*optarg == '\0' || *endptr != '\0') {   \
+       usage(argv[0]);                          \
+    }
+
+    while ((c = getopt(argc, argv, "b:hp:qvV")) != -1) {
         switch (c) {
         case 'b':
-            server->backlog = atoi(optarg);
+            server->backlog = NUM_OPT;
             break;
         case 'p':
-            port = atoi(optarg);
+            port = NUM_OPT;
             break;
         case 'q':
             vlevel = V0;
@@ -70,25 +95,24 @@ int init_server(struct server *server, int argc, char *argv[]) {
         case 'V':
             vlevel = V2;
             break;
+        case 'h':
         case '?':
-            if (optopt == 'p' || optopt == 'b') {
-                fprintf(stderr, "Option -%c requires an argument\n", optopt);
-            }
-            else if (isprint(optopt)) {
-                fprintf(stderr, "Unknown option %c\n", optopt);
-            }
-            else {
-                fprintf(stderr, "Unknown option character 0x%x\n", c);
-            }
-            return 1;
+            usage(argv[0]);
         default:
             return -1;
         }
     }
 
+#undef NUM_OPT
+
     server->in.sin_port = htons(port);
 
     server->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    
+    signal(SIGINT, close_handler);
+    
+    // initialize const globals in http processor
+    http_init();
 
     return 0;
 }
