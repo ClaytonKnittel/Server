@@ -8,6 +8,7 @@
 
 #include "vprint.h"
 #include "get_ip_addr.h"
+#include "http.h"
 
 #define DEFAULT_BACKLOG 50
 
@@ -27,13 +28,20 @@ static struct server {
 
 struct client {
     
-
     int connfd;
 };
 
 
+void close_handler(int signum);
+
+
 int init_server(struct server *server, int argc, char *argv[]) {
     int c, port;
+
+    // initialize const globals in http processor
+    http_init();
+
+    signal(SIGINT, close_handler);
 
     server->backlog = DEFAULT_BACKLOG;
     port = DEFAULT_PORT;
@@ -92,11 +100,15 @@ void print_server_params(struct server *server) {
     inet_ntop(AF_INET, &(server->in.sin_addr), ip_str, INET_ADDRSTRLEN);
 
     vprintf("Server created on port %s:%d\n", ip_str, port);
+    vprintf("Server: %s\n", get_ip_addr_str());
 }
 
 void close_server(struct server *server) {
     sio_print("Closing server\n");
     close(server->sockfd);
+
+    // clean up memory used by http processor
+    http_exit();
 }
 
 void close_handler(int signum) {
@@ -126,8 +138,6 @@ int connect_server(struct server *server) {
 int main(int argc, char *argv[]) {
     int ret;
 
-    signal(SIGINT, close_handler);
-
     if ((ret = init_server(&server, argc, argv)) != 0) {
         return ret;
     }
@@ -137,12 +147,11 @@ int main(int argc, char *argv[]) {
     }
     
     print_server_params(&server);
-    printf("Server: %s\n", get_ip_addr_str());
 
     printf("Types:\nAF_INET: %x\nAF_UNIX: %x\nAF_NS: %x\nAF_IMPLINK: %x\n",
             AF_INET, AF_UNIX, AF_NS, AF_IMPLINK);
 
-    while (1) {
+    while (0) {
         struct sockaddr client;
         socklen_t len = sizeof(client);
         memset(&client, 0, len);
@@ -160,7 +169,10 @@ int main(int argc, char *argv[]) {
         vprintf("Closing connection %d\n", cfd);
 
         close(cfd);
+        break;
     }
+
+    close_server(&server);
 
     return 0;
 }
