@@ -1,8 +1,9 @@
-.obj
-.DS_Store
 srv
-.vscode
-*.dYSM
+.obj
 
 test/*
 !test/*.*
+
+.DS_Store
+.vscode
+*.dYSM

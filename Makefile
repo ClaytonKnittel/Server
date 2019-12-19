@@ -1,6 +1,6 @@
 CFLAGS=-c -O2 -std=c99 # -pthread
 
-MAIN=server
+MAIN=main
 TEST_FOLDER=test
 
 SRC=$(wildcard *.c)
