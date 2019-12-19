@@ -2,4 +2,7 @@
 .DS_Store
 srv
 .vscode
-srv.dYSM
+*.dYSM
+
+test/*
+!test/*.*
