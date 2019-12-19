@@ -31,7 +31,7 @@ int init_server3(struct server *server, int port, int backlog);
 
 void print_server_params(struct server *server);
 
-void close_server(struct server *server);
+int close_server(struct server *server);
 
 int connect_server(struct server *server);
 

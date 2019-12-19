@@ -93,6 +93,10 @@ int init(struct server *server, int argc, char *argv[]) {
 
 void close_handler(int signum) {
     close_server(&server);
+
+    // clean up memory used by http processor
+    http_exit();
+
     exit(0);
 }
 
@@ -105,10 +109,13 @@ int main(int argc, char *argv[]) {
 
     print_server_params(&server);
 
-    printf("Types:\nAF_INET: %x\nAF_UNIX: %x\n",
-            AF_INET, AF_UNIX);
+    /*printf("Types:\nAF_INET: %x\nAF_UNIX: %x\n",
+            AF_INET, AF_UNIX);*/
 
     start_server(&server);
+
+    // clean up memory used by http processor
+    http_exit();
 
     return 0;
 }

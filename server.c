@@ -35,18 +35,35 @@ void print_server_params(struct server *server) {
 
     port = ntohs(server->in.sin_port);
 
-    inet_ntop(AF_INET, &(server->in.sin_addr), ip_str, INET_ADDRSTRLEN);
-
-    vprintf("Server listening to %s:%d\n", ip_str, port);
-    vprintf("Server listening on port: %s\n", get_ip_addr_str());
+    vprintf("Server listening on port: %s:%d\n", get_ip_addr_str(), port);
 }
 
-void close_server(struct server *server) {
-    sio_print("Closing server\n");
-    close(server->sockfd);
+int close_server(struct server *server) {
+    struct linger l;
 
-    // clean up memory used by http processor
-    http_exit();
+    // because this may be called in an interrupt context
+    sio_print("Closing server\n");
+
+    l.l_onoff = 0; // off
+    l.l_linger = 0;
+    if (setsockopt(server->sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)) < 0) {
+        printf("Unable to set sockopt linger on socket fd %d, reason: %s\n",
+                server->sockfd, strerror(errno));
+        return -1;
+    }
+
+    if (shutdown(server->sockfd, SHUT_RDWR) < 0) {
+        printf("Unable to shutdown socket fd %d, reason: %s\n",
+                server->sockfd, strerror(errno));
+        //return -1;
+    }
+
+    if (close(server->sockfd) < 0) {
+        printf("Closing socket fd %d failed, reason: %s\n",
+                server->sockfd, strerror(errno));
+        return -1;
+    }
+    return 0;
 }
 
 
@@ -69,6 +86,7 @@ int connect_server(struct server *server) {
     return 0;
 }
 
+#define SIZE 1024
 void start_server(struct server *server) {
 
     while (1) {
@@ -80,15 +98,27 @@ void start_server(struct server *server) {
         vprintf("Connected to client of type %hx, len %d\n\n",
                 client.sa_family, len);
 
-        char buf[129];
-        while (read(cfd, buf, 128) > 0) {
-            buf[128] = '\0';
-            printf("%s", buf);
+        char buf[SIZE + 1];
+        if (read(cfd, buf, SIZE) > 0) {
+            buf[SIZE] = '\0';
+            printf(P_CYAN "%s" P_RESET, buf);
+            char msg[] =    "HTTP/1.1 200 OK\n"
+                            "Date: Thu, 19 Dec 2019 10:46:30 GMT\n"
+                            "Server: Clayton/0.1\n"
+                            "Last-Modified: Mon, 02 Sep 2019 02:29:25 GMT\n"
+                            "Content-Length: 24\n"
+                            "Content-Type: text/plain; charset=UTF-8n\n\n"
+                            "Hey this is a response!\n";
+            write(cfd, msg, sizeof(msg) - 1);
+            //break;
         }
 
         vprintf("Closing connection %d\n", cfd);
 
-        close(cfd);
+        if (close(cfd) < 0) {
+            printf("Closing socket fd %d failed, reason: %s\n",
+                    cfd, strerror(errno));
+        }
         break;
     }
 
