@@ -14,6 +14,15 @@
 #define V1 1
 #define V2 2
 
+// color specifiers for output
+#define P_RED       "\033[0;31m"
+#define P_GREEN     "\033[0;32m"
+#define P_YELLOW    "\033[0;33m"
+#define P_BLUE      "\033[0;34m"
+#define P_MAGENTA   "\033[0;35m"
+#define P_CYAN      "\033[0;36m"
+#define P_RESET     "\033[0m"
+
 
 // verbosity level
 // V0: no printing

@@ -67,6 +67,8 @@ int dmsg_init2(dmsg_list*, unsigned int init_node_size);
 
 void dmsg_free(dmsg_list*);
 
+void dmsg_print(const dmsg_list*, int fd);
+
 int dmsg_append(dmsg_list*, void* buf, size_t count);
 
 int dmsg_write(dmsg_list*, int fd);

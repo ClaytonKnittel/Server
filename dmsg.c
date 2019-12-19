@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "dmsg.h"
+#include "util.h"
 
 
 static size_t min(size_t a, size_t b) {
@@ -21,11 +22,11 @@ int dmsg_init2(dmsg_list *list, unsigned int init_node_size) {
     int ret;
 
     list->len = 0;
-    list->list_size = 1;
+    list->list_size = 0;
     list->_init_node_size = init_node_size;
 
-    if (init_node_size & (init_node_size - 1)) {
-        printf("Initial node size of dmsg list must be a power of 2, but"
+    if (init_node_size == 0 || init_node_size & (init_node_size - 1)) {
+        printf("Initial node size of dmsg list must be a power of 2, but "
                 "got %u\n", init_node_size);
         return DMSG_INIT_FAIL;
     }
@@ -33,7 +34,6 @@ int dmsg_init2(dmsg_list *list, unsigned int init_node_size) {
     if ((ret = dmsg_grow(list)) != 0) {
         return ret;
     }
-    list->list[0].size = 0;
 
     return 0;
 }
@@ -100,6 +100,25 @@ static int dmsg_grow(dmsg_list *list) {
 }
 
 
+void dmsg_print(const dmsg_list *list, int fd) {
+    unsigned int i;
+    int wid, base;
+
+    dprintf(fd, "dmsg_list:\n\tmsg len: %lu\n\tnum alloced list nodes: %u\n"
+            "\tfirst node size: %u\n",
+            list->len, list->list_size, list->_init_node_size);
+
+    base = first_set_bit(list->_init_node_size);
+    wid = dec_width((list->list_size - 1) + base);
+    for (i = 0; i < list->list_size; i++) {
+        dprintf(fd, " node %2u [ %*lu / %-*lu ]:\t%.32s...\n",
+                i, wid, list->list[i].size, wid,
+                dmsg_node_size(list->_init_node_size, i), list->list[i].msg);
+    }
+}
+
+
+
 // appends data to the dmsg_list
 int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     size_t remainder, write_size;
@@ -111,10 +130,13 @@ int dmsg_append(dmsg_list *list, void* buf, size_t count) {
 
     memcpy(dmsg_end(list), buf, write_size);
     dmsg_last(list)->size += write_size;
+    list->len += write_size;
 
-    if (count > 0) {
+    if (remainder == write_size) {
+        // we filled up this buffer
         dmsg_grow(list);
-        if (remainder != count) {
+        if (count > 0) {
+            // we still have more message to write
             return dmsg_append(list, ((char*) buf) + write_size, count);
         }
     }
