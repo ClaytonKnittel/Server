@@ -12,12 +12,6 @@ int dec_width(int pow2) {
     return 1 + (pow2 / 3);
 }
 
-int first_set_bit(size_t val) {
-    size_t pos;
-    __asm__("bsf %1, %0" : "=r" (pos) : "rm" (val));
-    return (int) pos;
-}
-
 /*
  * credit: https://stackoverflow.com/questions/150355/programmatically-find-the-number-of-cores-on-a-machine
  */

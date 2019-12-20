@@ -1,6 +1,7 @@
 // for dprintf on linux
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,6 +19,11 @@ static size_t min(size_t a, size_t b) {
 static int dmsg_grow(dmsg_list *list);
 
 
+
+
+// -------------------- Initialization --------------------
+
+
 int dmsg_init(dmsg_list *list) {
     return dmsg_init2(list, DEFAULT_DMSG_NODE_SIZE);
 }
@@ -26,6 +32,7 @@ int dmsg_init2(dmsg_list *list, unsigned int init_node_size) {
     int ret;
 
     list->len = 0;
+    list->_offset = 0;
     list->list_size = 0;
     list->_init_node_size = init_node_size;
 
@@ -50,34 +57,46 @@ void dmsg_free(dmsg_list *list) {
 
 
 
-// Gives the size of the dmsg_node at the given index,
-// given the size of the first node
+// -------------------- Node size/ops helper methods --------------------
+
+
+/*
+ * gives the size of the dmsg_node at the given index,
+ * given the size of the first node
+ */
 static size_t dmsg_node_size(unsigned int init_node_size, unsigned int idx) {
     return ((size_t) init_node_size) << idx;
 }
 
-// Given the initial node size and number of nodes allocated,
-// gives the total number of bytes of data that can be held in
-// those nodes.
-//
-// This is reliant on init_node_size being a power of 2
+/*
+ * given the initial node size and number of nodes allocated,
+ * gives the total number of bytes of data that can be held in
+ * those nodes.
+ */
 static size_t dmsg_size(unsigned int init_node_size, unsigned int num_nodes) {
     return (dmsg_node_size(init_node_size, num_nodes) - 1) &
         ~(init_node_size - 1);
 }
 
-// Calculates how many bytes of data can be written to the last
-// node before needing to allocate another dmsg_node
+/*
+ * calculates how many bytes of data can be written to the last
+ * node before needing to allocate another dmsg_node
+ */
 static size_t dmsg_remainder(dmsg_list *list) {
     return dmsg_size(list->_init_node_size, list->list_size) - list->len;
 }
 
+/*
+ * returns a pointer to the last allocated node of the list
+ */
 static dmsg_node* dmsg_last(dmsg_list *list) {
     return &list->list[list->list_size - 1];
 }
 
-// Returns a pointer to the memory address immediately after the
-// end of written data 
+/* 
+ * returns a pointer to the memory address immediately after the
+ * end of written data 
+ */
 static void* dmsg_end(dmsg_list *list) {
     return ((char*) dmsg_last(list)->msg) +
         (list->len - dmsg_size(list->_init_node_size, list->list_size - 1));
@@ -104,6 +123,9 @@ static int dmsg_grow(dmsg_list *list) {
 }
 
 
+
+// -------------------- Printing --------------------
+
 void dmsg_print(const dmsg_list *list, int fd) {
     unsigned int i;
     int wid, base;
@@ -123,6 +145,7 @@ void dmsg_print(const dmsg_list *list, int fd) {
 }
 
 
+// -------------------- State operations --------------------
 
 int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     size_t remainder, write_size;
@@ -207,7 +230,6 @@ int dmsg_cpy(dmsg_list *list, char *buf) {
     return 0;
 }
 
-// writes all data in the dmsg to the given file descriptor
 int dmsg_write(dmsg_list *list, int fd) {
     ssize_t written;
     if ((written = writev(fd, (struct iovec *) list->list, list->list_size))
@@ -217,5 +239,129 @@ int dmsg_write(dmsg_list *list, int fd) {
         return 1;
     }
     return 0;
+}
+
+
+
+// -------------------- dmsg_offset_t operations --------------------
+
+/*
+ * returns the index of the node in which the character at the given
+ * offset would appear in in a dmsg_list with given initial node size
+ */
+static int dmsg_offset_idx(
+        unsigned int init_node_size, dmsg_off_t offset) {
+
+    int order = first_set_bit(init_node_size);
+
+    offset |= (1LU << order) - 1;
+    offset++;
+
+    int index = last_set_bit(offset) - order;
+    return index;
+}
+
+
+// -------------------- Stream-like operations --------------------
+
+
+int dmsg_seek(dmsg_list *list, ssize_t offset, int whence) {
+    dmsg_off_t new_off;
+    switch (whence) {
+    case SEEK_SET:
+        if (offset < 0) {
+            return DMSG_SEEK_NEG;
+        }
+        if (offset > list->len) {
+            return DMSG_SEEK_OVERFLOW;
+        }
+        list->_offset = offset;
+        break;
+    case SEEK_CUR:
+        new_off = list->_offset + offset;
+        if (new_off < 0) {
+            return DMSG_SEEK_NEG;
+        }
+        if (new_off > list->len) {
+            return DMSG_SEEK_OVERFLOW;
+        }
+        list->_offset = new_off;
+        break;
+    case SEEK_END:
+        new_off = list->len + offset;
+        if (new_off < 0) {
+            return DMSG_SEEK_NEG;
+        }
+        if (new_off > list->len) {
+            return DMSG_SEEK_OVERFLOW;
+        }
+        list->_offset = new_off;
+        break;
+    default:
+        return EINVAL;
+    }
+    return 0;
+}
+
+size_t dmsg_getline(dmsg_list *list, char *buf, size_t bufsize) {
+    size_t remainder, msg_len = 0;
+    const size_t ibufsize = bufsize;
+    char *newline, *msg_loc;
+    unsigned int idx, init_node_size;
+
+    init_node_size = list->_init_node_size;
+
+    // we cannot read more characters than there are in the dmsg_list
+    bufsize = min(bufsize, list->len - list->_offset);
+
+    idx = dmsg_offset_idx(init_node_size, list->_offset);
+    remainder = dmsg_size(init_node_size, idx + 1) - list->_offset;
+    msg_loc = list->list[idx].msg +
+        (list->_offset - dmsg_size(init_node_size, idx));
+
+    while (1) {
+        remainder = min(remainder, bufsize);
+        newline = (char*) memchr(msg_loc, '\n', remainder);
+
+        // length of the message segment to be read
+        size_t len = newline == NULL ? remainder :
+            (((size_t) newline) + 1 - ((size_t) msg_loc));
+
+        // copy the contents into the buffer
+        memcpy(buf + msg_len, msg_loc, len);
+
+        msg_len += len;
+        bufsize -= len;
+
+        // either we found a newline character or exhausted the buffer
+        if (newline != NULL || bufsize == 0) {
+            break;
+        }
+
+        idx++;
+        remainder = dmsg_node_size(init_node_size, idx);
+        msg_loc = list->list[idx].msg;
+    }
+    
+    // we have to increment the offset before in case it is modified by the
+    // statements below
+    list->_offset += msg_len;
+
+    if (buf[msg_len - 1] != '\n') {
+        if (msg_len == ibufsize) {
+            // if we filled the buffer and the last character read in was not a
+            // newline, then we need to decrement the offset by one, since we'll
+            // be overwriting that last character
+            list->_offset--;
+        }
+        else {
+            // if we did not fill the buffer, then we can just add the newline
+            // to the end of the message
+            msg_len++;
+        }
+    }
+    buf[msg_len - 1] = '\0';
+
+    return msg_len;
 }
 

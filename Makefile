@@ -1,4 +1,4 @@
-CFLAGS=-c -O2 -std=c99 -pthread
+CFLAGS=-c -O3 -std=c99 -pthread
 
 MAIN=main
 TEST_FOLDER=test
