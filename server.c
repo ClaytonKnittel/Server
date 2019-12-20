@@ -1,9 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
-#include <sys/fcntl.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
@@ -80,13 +78,8 @@ int connect_server(struct server *server) {
 void start_server(struct server *server) {
     struct client c;
     while (1) {
-        accept_client(&c, server->sockfd, O_NONBLOCK);
-        printf("Open client\n");
-
-        receive_data(&c);
-
+        accept_client(&c, server->sockfd);
         close_client(&c);
-        printf("Close client\n");
 
         /*char buf[SIZE + 1];
         if (read(cfd, buf, SIZE) > 0) {
@@ -109,6 +102,7 @@ void start_server(struct server *server) {
             printf("Closing socket fd %d failed, reason: %s\n",
                     cfd, strerror(errno));
         }*/
+        break;
     }
 
     close_server(server);
