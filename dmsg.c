@@ -124,73 +124,74 @@ void dmsg_print(const dmsg_list *list, int fd) {
 int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     size_t remainder, write_size;
 
-    remainder = dmsg_remainder(list);
-    
-    write_size = min(remainder, count);
-    count -= write_size;
+    while (count > 0) {
+        remainder = dmsg_remainder(list);
+        
+        write_size = min(remainder, count);
+        count -= write_size;
 
-    memcpy(dmsg_end(list), buf, write_size);
-    dmsg_last(list)->size += write_size;
-    list->len += write_size;
+        memcpy(dmsg_end(list), buf, write_size);
+        dmsg_last(list)->size += write_size;
+        list->len += write_size;
 
-    if (remainder == write_size && write_size > 0) {
-        // we filled up this buffer
-        dmsg_grow(list);
-        if (count > 0) {
-            // we still have more message to write
-            return dmsg_append(list, ((char*) buf) + write_size, count);
+        if (remainder == write_size && write_size > 0) {
+            // we filled up this buffer
+            dmsg_grow(list);
+            buf += write_size;
         }
     }
     return 0;
 }
 
-int dmsg_read(dmsg_list *list, int fd) {
-    size_t remainder, read_size;
-    int ret;
+size_t dmsg_read(dmsg_list *list, int fd) {
+    size_t remainder, read_size, total_read = 0;
 
-    remainder = dmsg_remainder(list);
+    while (1) {
+        remainder = dmsg_remainder(list);
 
-    read_size = read(fd, dmsg_end(list), remainder);
-    dmsg_last(list)->size += read_size;
-    list->len += read_size;
+        read_size = read(fd, dmsg_end(list), remainder);
+        dmsg_last(list)->size += read_size;
+        list->len += read_size;
 
-    if (read_size == remainder) {
-        // we filled up this buffer
-        dmsg_grow(list);
-        ret = dmsg_read(list, fd);
-        if (ret < 0) {
-            return ret;
+        total_read += read_size;
+
+        if (read_size == remainder) {
+            // we filled up this buffer
+            dmsg_grow(list);
         }
-        return read_size + ret;
+        else {
+            break;
+        }
     }
-    return read_size;
+    return total_read;
 }
 
-int dmsg_read_n(dmsg_list *list, int fd, int count) {
-    size_t remainder, req_size, read_size;
+size_t dmsg_read_n(dmsg_list *list, int fd, int count) {
+    size_t remainder, req_size, read_size, total_read = 0;
     int ret;
 
-    remainder = dmsg_remainder(list);
+    while (count > 0) {
+        remainder = dmsg_remainder(list);
 
-    req_size = min(remainder, count);
+        req_size = min(remainder, count);
 
-    read_size = read(fd, dmsg_end(list), req_size);
-    dmsg_last(list)->size += read_size;
-    list->len += read_size;
-    count -= read_size;
+        read_size = read(fd, dmsg_end(list), req_size);
+        dmsg_last(list)->size += read_size;
+        list->len += read_size;
+        count -= read_size;
 
-    if (read_size == remainder && read_size > 0) {
-        // we filled up this buffer
-        dmsg_grow(list);
-        if (count > 0) {
-            ret = dmsg_read_n(list, fd, count);
-            if (ret < 0) {
-                return ret;
-            }
-            return read_size + ret;
+        total_read += read_size;
+
+        if (read_size == remainder) {
+            // we filled up this buffer
+            dmsg_grow(list);
+        }
+        if (read_size != req_size) {
+            // we have read everything from the stream
+            break;
         }
     }
-    return read_size;
+    return total_read;
 }
 
 int dmsg_cpy(dmsg_list *list, char *buf) {

@@ -79,7 +79,7 @@ int dmsg_append(dmsg_list*, void* buf, size_t count);
  *
  * returns the number of bytes successfully read
  */
-int dmsg_read(dmsg_list*, int fd);
+size_t dmsg_read(dmsg_list*, int fd);
 
 /*
  * Attempts to read up to count bytes from fd into the list, but will stop
@@ -87,7 +87,7 @@ int dmsg_read(dmsg_list*, int fd);
  * 
  * returns the number of bytes successfully read
  */
-int dmsg_read_n(dmsg_list*, int fd, int count);
+size_t dmsg_read_n(dmsg_list*, int fd, int count);
 
 int dmsg_cpy(dmsg_list*, char *buf);
 
