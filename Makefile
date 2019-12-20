@@ -18,8 +18,11 @@ OBJ_DEP=$(filter-out .obj/$(MAIN).o, $(OBJ))
 CC=gcc -MMD -MP
 EXE=srv
 
+$(shell mkdir -p .obj)
+$(shell mkdir -p .obj/test)
+
 .PHONY: all
-all: $(EXE) $(TEST_FOLDER)s
+all: $(EXE) $(TEST_FOLDER)
 
 $(TEST_FOLDER)s: $(TEXES)
 
