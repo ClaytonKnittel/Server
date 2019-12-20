@@ -3,7 +3,7 @@
 
 #define DEFAULT_BACKLOG 50
 
-#define DEFAULT_PORT 2345
+#define DEFAULT_PORT 80
 
 
 static struct server {

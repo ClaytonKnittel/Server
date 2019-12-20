@@ -69,7 +69,27 @@ void dmsg_free(dmsg_list*);
 
 void dmsg_print(const dmsg_list*, int fd);
 
+/*
+ * appends data to the dmsg_list
+ */
 int dmsg_append(dmsg_list*, void* buf, size_t count);
+
+/*
+ * Reads from fd into the list until EOF is reached
+ *
+ * returns the number of bytes successfully read
+ */
+int dmsg_read(dmsg_list*, int fd);
+
+/*
+ * Attempts to read up to count bytes from fd into the list, but will stop
+ * if EOF is reached before then
+ * 
+ * returns the number of bytes successfully read
+ */
+int dmsg_read_n(dmsg_list*, int fd, int count);
+
+int dmsg_cpy(dmsg_list*, char *buf);
 
 int dmsg_write(dmsg_list*, int fd);
 

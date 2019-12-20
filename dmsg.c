@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "dmsg.h"
 #include "util.h"
@@ -111,15 +112,15 @@ void dmsg_print(const dmsg_list *list, int fd) {
     base = first_set_bit(list->_init_node_size);
     wid = dec_width((list->list_size - 1) + base);
     for (i = 0; i < list->list_size; i++) {
-        dprintf(fd, " node %2u [ %*lu / %-*lu ]:\t%.32s...\n",
+        dprintf(fd, " node %2u [ %*lu / %-*lu ]:\t%.*s...\n",
                 i, wid, list->list[i].size, wid,
-                dmsg_node_size(list->_init_node_size, i), list->list[i].msg);
+                dmsg_node_size(list->_init_node_size, i),
+                (int) min(list->list[i].size, 32), list->list[i].msg);
     }
 }
 
 
 
-// appends data to the dmsg_list
 int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     size_t remainder, write_size;
 
@@ -132,7 +133,7 @@ int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     dmsg_last(list)->size += write_size;
     list->len += write_size;
 
-    if (remainder == write_size) {
+    if (remainder == write_size && write_size > 0) {
         // we filled up this buffer
         dmsg_grow(list);
         if (count > 0) {
@@ -143,6 +144,64 @@ int dmsg_append(dmsg_list *list, void* buf, size_t count) {
     return 0;
 }
 
+int dmsg_read(dmsg_list *list, int fd) {
+    size_t remainder, read_size;
+    int ret;
+
+    remainder = dmsg_remainder(list);
+
+    read_size = read(fd, dmsg_end(list), remainder);
+    dmsg_last(list)->size += read_size;
+    list->len += read_size;
+
+    if (read_size == remainder) {
+        // we filled up this buffer
+        dmsg_grow(list);
+        ret = dmsg_read(list, fd);
+        if (ret < 0) {
+            return ret;
+        }
+        return read_size + ret;
+    }
+    return read_size;
+}
+
+int dmsg_read_n(dmsg_list *list, int fd, int count) {
+    size_t remainder, req_size, read_size;
+    int ret;
+
+    remainder = dmsg_remainder(list);
+
+    req_size = min(remainder, count);
+
+    read_size = read(fd, dmsg_end(list), req_size);
+    dmsg_last(list)->size += read_size;
+    list->len += read_size;
+    count -= read_size;
+
+    if (read_size == remainder && read_size > 0) {
+        // we filled up this buffer
+        dmsg_grow(list);
+        if (count > 0) {
+            ret = dmsg_read_n(list, fd, count);
+            if (ret < 0) {
+                return ret;
+            }
+            return read_size + ret;
+        }
+    }
+    return read_size;
+}
+
+int dmsg_cpy(dmsg_list *list, char *buf) {
+    size_t size;
+    for (int i = 0; i < list->list_size; i++) {
+        size = list->list[i].size;
+        memcpy(buf, list->list[i].msg, size);
+        buf += size;
+    }
+    return 0;
+}
 
 // writes all data in the dmsg to the given file descriptor
 int dmsg_write(dmsg_list *list, int fd) {

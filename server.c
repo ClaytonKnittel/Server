@@ -39,24 +39,8 @@ void print_server_params(struct server *server) {
 }
 
 int close_server(struct server *server) {
-    struct linger l;
-
-    // because this may be called in an interrupt context
-    sio_print("Closing server\n");
-
-    l.l_onoff = 0; // off
-    l.l_linger = 0;
-    if (setsockopt(server->sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)) < 0) {
-        printf("Unable to set sockopt linger on socket fd %d, reason: %s\n",
-                server->sockfd, strerror(errno));
-        return -1;
-    }
-
-    if (shutdown(server->sockfd, SHUT_RDWR) < 0) {
-        printf("Unable to shutdown socket fd %d, reason: %s\n",
-                server->sockfd, strerror(errno));
-        //return -1;
-    }
+    // TODO this may be called in an interrupt context
+    vprintf("Closing server on fd %d\n", server->sockfd);
 
     if (close(server->sockfd) < 0) {
         printf("Closing socket fd %d failed, reason: %s\n",
