@@ -13,9 +13,9 @@ int dec_width(int pow2) {
 }
 
 int first_set_bit(size_t val) {
-    int pos;
-    __asm__("bsfl %1, %0" : "=r" (pos) : "rm" (val));
-    return pos;
+    size_t pos;
+    __asm__("bsf %1, %0" : "=r" (pos) : "rm" (val));
+    return (int) pos;
 }
 
 /*
