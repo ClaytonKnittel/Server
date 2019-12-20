@@ -1,5 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <errno.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
@@ -48,7 +52,7 @@ static void silence_stdout() {
 // in the list
 static void test_write_read(dmsg_list *list) {
     int fd = open(
-#if __APPLE__
+#ifndef O_TMPFILE
 #define TMP_NAME "test/.temp.txt"
             TMP_NAME, O_CREAT |
 #else
@@ -84,7 +88,7 @@ static void test_write_read(dmsg_list *list) {
     assert(strcmp(buf, buf2) == 0);
 
     close(fd);
-#if __APPLE__
+#ifndef O_TMPFILE
     unlink(TMP_NAME);
 #undef TMP_NAME
 #endif
@@ -212,7 +216,7 @@ int main() {
         char msg2[] = "mor__romextra";
 
         int fd = open(
-#if __APPLE__
+#ifndef O_TMPFILE
 #define TMP_NAME "test/.input.txt"
                 TMP_NAME, O_CREAT | O_TRUNC |
 #else
@@ -303,7 +307,7 @@ int main() {
         dmsg_free(&list);
 
         close(fd);
-#if __APPLE__
+#ifndef O_TMPFILE
         unlink(TMP_NAME);
 #undef TMP_NAME
 #endif
