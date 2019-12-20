@@ -24,7 +24,7 @@ $(shell mkdir -p .obj/test)
 .PHONY: all
 all: $(EXE) $(TEST_FOLDER)
 
-$(TEST_FOLDER)s: $(TEXES)
+$(TEST_FOLDER): $(TEXES)
 
 $(EXE): $(OBJ)
 	$(CC) $(OBJ) -o $@
