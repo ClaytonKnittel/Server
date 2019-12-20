@@ -12,7 +12,7 @@
 #include "../dmsg.h"
 
 
-#define VERBOSE
+//#define VERBOSE
 
 #ifdef VERBOSE
 #define v_ensure(...) __VA_ARGS__
@@ -372,6 +372,7 @@ int main() {
         }
 
 
+#define SIZE 12
         // test not ending with newline
         char msg2[] = "new message\nthris";
         for (int i = 2; i <= 8; i *= 2) {
@@ -380,7 +381,6 @@ int main() {
 
             v_ensure(dmsg_print(&list, STDERR_FILENO));
 
-#define SIZE 12
             char buf[SIZE];
 
             assert(dmsg_getline(&list, buf, sizeof(buf)), 12);
@@ -389,9 +389,61 @@ int main() {
             assert(strcmp(buf, "thris"), 0);
 
             dmsg_free(&list);
-#undef SIZE
 
         }
+
+        // test dmsg_seek
+        for (int i = 2; i <= 8; i *= 2) {
+            assert(dmsg_init2(&list, i), 0);
+            assert(dmsg_append(&list, msg2, sizeof(msg2) - 1), 0);
+            
+            char buf[SIZE];
+
+            // test SEEK_SET
+
+            // test seeking out of bounds with SEEK_SET
+            assert_neq(dmsg_seek(&list, -1, SEEK_SET), 0);
+            assert(dmsg_seek(&list, sizeof(msg2) - 1, SEEK_SET), 0);
+            assert_neq(dmsg_seek(&list, sizeof(msg2), SEEK_SET), 0);
+            assert(dmsg_seek(&list, 0, SEEK_SET), 0);
+
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 12);
+            assert(dmsg_seek(&list, 3, SEEK_SET), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 9);
+            assert(strcmp(buf, " message"), 0);
+
+            // test SEEK_CUR
+
+            assert(dmsg_seek(&list, -4, SEEK_CUR), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(strcmp(buf, "age"), 0);
+
+            // test going out of bounds with relative seek
+            // and seek when the buffer is filled
+            assert_neq(dmsg_seek(&list, -13, SEEK_CUR), 0);
+            assert(dmsg_seek(&list, -12, SEEK_CUR), 0);
+            assert(dmsg_getline(&list, buf, 7), 7);
+            assert(strcmp(buf, "new me"), 0);
+            // now try reading in all of "message"
+            assert(dmsg_seek(&list, -2, SEEK_CUR), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 8);
+
+            assert(dmsg_seek(&list, 2, SEEK_CUR), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(strcmp(buf, "ris"), 0);
+
+
+            // test SEEK_END
+
+            // test seeking out of bounds with SEEK_END
+            assert_neq(dmsg_seek(&list, 1, SEEK_END), 0);
+            assert(dmsg_seek(&list, 1 - (ssize_t) sizeof(msg2), SEEK_END), 0);
+            assert_neq(dmsg_seek(&list, -(ssize_t) sizeof(msg2), SEEK_END), 0);
+            assert(dmsg_seek(&list, 0, SEEK_END), 0);
+
+            dmsg_free(&list);
+        }
+#undef SIZE
 
     }
 
