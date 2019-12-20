@@ -1,6 +1,4 @@
 
-#include "dmsg.h"
-
 #define DEFAULT_BACKLOG 50
 
 #define DEFAULT_PORT 80
@@ -15,14 +13,6 @@ static struct server {
     // the server is listening 
     int backlog;
 } server;
-
-
-
-struct client {
-    int connfd;
-
-    struct dmsg_list msg;
-};
 
 
 int init_server(struct server *server, int port);

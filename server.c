@@ -6,10 +6,12 @@
 #include <unistd.h>
 #include <string.h>
 
+#include "client.h"
 #include "server.h"
 #include "vprint.h"
 #include "get_ip_addr.h"
 #include "http.h"
+#include "util.h"
 
 int init_server(struct server *server, int port) {
     return init_server3(server, port, DEFAULT_BACKLOG);
@@ -25,6 +27,8 @@ int init_server3(struct server *server, int port, int backlog) {
     server->in.sin_port = htons(port);
 
     server->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    printf("Num cpus: %d\n", get_n_cpus());
 
     return connect_server(server);
 }
@@ -72,17 +76,12 @@ int connect_server(struct server *server) {
 
 #define SIZE 1024
 void start_server(struct server *server) {
-
+    struct client c;
     while (1) {
-        struct sockaddr client;
-        socklen_t len = sizeof(client);
-        memset(&client, 0, len);
-        int cfd = accept(server->sockfd, &client, &len);
+        accept_client(&c, server->sockfd);
+        close_client(&c);
 
-        vprintf("Connected to client of type %hx, len %d\n\n",
-                client.sa_family, len);
-
-        char buf[SIZE + 1];
+        /*char buf[SIZE + 1];
         if (read(cfd, buf, SIZE) > 0) {
             buf[SIZE] = '\0';
             printf(P_CYAN "%s" P_RESET, buf);
@@ -97,12 +96,12 @@ void start_server(struct server *server) {
             //break;
         }
 
-        vprintf("Closing connection %d\n", cfd);
+        vprintf("Closing connection %d\n", cfd);*/
 
-        if (close(cfd) < 0) {
+        /*if (close(cfd) < 0) {
             printf("Closing socket fd %d failed, reason: %s\n",
                     cfd, strerror(errno));
-        }
+        }*/
         break;
     }
 
