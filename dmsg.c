@@ -170,12 +170,16 @@ int dmsg_append(dmsg_list *list, void* buf, size_t count) {
 }
 
 size_t dmsg_read(dmsg_list *list, int fd) {
-    size_t remainder, read_size, total_read = 0;
+    ssize_t remainder, read_size, total_read = 0;
 
     while (1) {
         remainder = dmsg_remainder(list);
 
         read_size = read(fd, dmsg_end(list), remainder);
+        if (read_size == -1) {
+            total_read = (total_read == 0) ? read_size : total_read;
+            break;
+        }
         dmsg_last(list)->size += read_size;
         list->len += read_size;
 
@@ -192,8 +196,8 @@ size_t dmsg_read(dmsg_list *list, int fd) {
     return total_read;
 }
 
-size_t dmsg_read_n(dmsg_list *list, int fd, int count) {
-    size_t remainder, req_size, read_size, total_read = 0;
+size_t dmsg_read_n(dmsg_list *list, int fd, size_t count) {
+    ssize_t remainder, req_size, read_size = 0, total_read = 0;
     int ret;
 
     while (count > 0) {
@@ -202,6 +206,10 @@ size_t dmsg_read_n(dmsg_list *list, int fd, int count) {
         req_size = min(remainder, count);
 
         read_size = read(fd, dmsg_end(list), req_size);
+        if (read_size == -1) {
+            total_read = (total_read == 0) ? read_size : total_read;
+            break;
+        }
         dmsg_last(list)->size += read_size;
         list->len += read_size;
         count -= read_size;

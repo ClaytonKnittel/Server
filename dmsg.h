@@ -144,7 +144,7 @@ size_t dmsg_read(dmsg_list*, int fd);
  * 
  * returns the number of bytes successfully read
  */
-size_t dmsg_read_n(dmsg_list*, int fd, int count);
+size_t dmsg_read_n(dmsg_list*, int fd, size_t count);
 
 /*
  * copies the dmsg_list into the supplied buffer, assuming the buffer is

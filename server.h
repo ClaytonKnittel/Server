@@ -12,6 +12,11 @@ static struct server {
     // the size of the backlog on the port which
     // the server is listening 
     int backlog;
+
+    // file descriptor for the asynchronous polling mechanism used,
+    // which is either epolling (linux) or kqueue (macos)
+    int qfd;
+
 } server;
 
 

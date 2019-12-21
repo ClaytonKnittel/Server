@@ -1,10 +1,20 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <sys/fcntl.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+
+#ifdef __APPLE__
+#define QUEUE_T "kqueue"
+#include <sys/event.h>
+#elif __linux__
+#define QUEUE_T "epoll"
+#include <sys/epoll.h>
+#endif
 
 #include "client.h"
 #include "server.h"
@@ -22,13 +32,20 @@ int init_server3(struct server *server, int port, int backlog) {
 
     server->in.sin_family = AF_INET;
     server->in.sin_addr.s_addr = INADDR_ANY;
-    
+
     server->backlog = backlog;
     server->in.sin_port = htons(port);
 
     server->sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
-    printf("Num cpus: %d\n", get_n_cpus());
+    server->qfd =
+#ifdef __APPLE__
+                  kqueue();
+#elif __linux__
+                  epoll_create(1);
+#endif
+
+    vprintf("Num cpus: %d\n", get_n_cpus());
 
     return connect_server(server);
 }
@@ -45,13 +62,21 @@ void print_server_params(struct server *server) {
 int close_server(struct server *server) {
     // TODO this may be called in an interrupt context
     vprintf("Closing server on fd %d\n", server->sockfd);
+    int ret = 0;
 
     if (close(server->sockfd) < 0) {
         printf("Closing socket fd %d failed, reason: %s\n",
                 server->sockfd, strerror(errno));
-        return -1;
+        ret = -1;
     }
-    return 0;
+
+    if (close(server->qfd) < 0) {
+        printf("Closing " QUEUE_T " fd %d failed, reason: %s\n",
+                server->qfd, strerror(errno));
+        ret = -1;
+    }
+
+    return ret;
 }
 
 
@@ -74,12 +99,31 @@ int connect_server(struct server *server) {
     return 0;
 }
 
+
+
 #define SIZE 1024
 void start_server(struct server *server) {
     struct client c;
     while (1) {
-        accept_client(&c, server->sockfd);
+        accept_client(&c, server->sockfd, O_NONBLOCK);
+        vprintf("Open client\n");
+
+        ssize_t ret;
+        do {
+            ret = receive_bytes_n(&c, 60);
+        } while (c.log.len == 0 || ret > 0);
+        //dmsg_write(&c.log, STDOUT_FILENO);
+        char msg[] =    "HTTP/1.1 200 OK\n"
+                        "Date: Thu, 19 Dec 2019 10:46:30 GMT\n"
+                        "Server: Clayton/0.1\n"
+                        "Last-Modified: Mon, 02 Sep 2019 02:29:25 GMT\n"
+                        "Content-Length: 24\n"
+                        "Content-Type: text/plain; charset=UTF-8n\n\n"
+                        "Hey this is a response!\n";
+        write(c.connfd, msg, sizeof(msg) - 1);
+
         close_client(&c);
+        vprintf("Close client\n\n");
 
         /*char buf[SIZE + 1];
         if (read(cfd, buf, SIZE) > 0) {
@@ -97,12 +141,6 @@ void start_server(struct server *server) {
         }
 
         vprintf("Closing connection %d\n", cfd);*/
-
-        /*if (close(cfd) < 0) {
-            printf("Closing socket fd %d failed, reason: %s\n",
-                    cfd, strerror(errno));
-        }*/
-        break;
     }
 
     close_server(server);
