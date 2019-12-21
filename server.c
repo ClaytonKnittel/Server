@@ -135,7 +135,7 @@ static int accept_connection(struct server *server) {
 
     EV_SET(&changelist[0], client->connfd, EVFILT_READ,
             EV_ADD | EV_DISPATCH, 0, 0, client);
-    EV_SET(&changelist[1], server->sockfd, 0,
+    EV_SET(&changelist[1], server->sockfd, EVFILT_READ,
             EV_ENABLE, 0, 0, NULL);
     if (kevent(server->qfd, changelist, 2, NULL, 0, NULL) == -1) {
         fprintf(stderr, "Unable to add client fd %d to " QUEUE_T
@@ -161,20 +161,35 @@ void run_server(struct server *server) {
                     strerror(errno));
             return;
         }
-        if (event.data == server->sockfd) {
+        printf("Got a connection!\n");
+        if (event.ident == server->sockfd) {
+            printf("accepting...\n");
             accept_connection(server);
         }
         else {
             client = (struct client *) event.udata;
-            nbytes = receive_bytes(client);
-            if (nbytes != ret) {
-                vprintf(P_YELLOW "Received %ld bytes, but expected %d\n"
-                        P_RESET, nbytes, ret);
+            if (event.flags & EV_EOF) {
+                printf("disconnected %d\n", client->connfd);
+                EV_SET(&event, client->connfd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+                    fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
+                            ", reason: %s\n", client->connfd, strerror(errno));
+                }
+                close_client(client);
+                free(client);
             }
-            EV_SET(&event, client->connfd, 0, EV_ENABLE, 0, 0, NULL);
-            if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-                fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
-                        ", reason: %s\n", client->connfd, strerror(errno));
+            else {
+                printf("reading...\n");
+                nbytes = receive_bytes_n(client, 128);
+                if (nbytes != ret) {
+                    vprintf(P_YELLOW "Received %ld bytes, but expected %d\n"
+                            P_RESET, nbytes, ret);
+                }
+                EV_SET(&event, client->connfd, EVFILT_READ, EV_ENABLE, 0, 0, client);
+                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+                    fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
+                            ", reason: %s\n", client->connfd, strerror(errno));
+                }
             }
         }
         /*vprintf("Open client\n");
