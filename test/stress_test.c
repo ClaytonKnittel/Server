@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 
 #include "../get_ip_addr.h"
+#include "../util.h"
 #include "../vprint.h"
 //#define VERBOSE
 #include "../t_assert.h"
@@ -42,6 +43,8 @@ void sigint(int sig) {
 
 int main(int argc, char *argv[]) {
     struct sockaddr_in server;
+    // for timing
+    struct timespec start, end;
     int cfds[NUM_CONNECTIONS];
     size_t i;
 
@@ -79,7 +82,11 @@ int main(int argc, char *argv[]) {
         }
 
         // wait for the server to notify us that it has been initialized
-        while (!ready);
+        while (!ready && (srvpid != -1));
+        if (srvpid == -1) {
+            printf(P_RED "Unable to initialize server" P_RESET "\n");
+            return -1;
+        }
     }
     else {
         // otherwise, parse the server's ip address out of the argument
@@ -105,11 +112,16 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < NUM_CONNECTIONS; i++) {
         cfds[i] = socket(AF_INET, SOCK_STREAM, 0);
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
     for (i = 0; i < NUM_CONNECTIONS; i++) {
         assert_neq(connect(cfds[i], (struct sockaddr*) &server,
                     sizeof(struct sockaddr_in)), -1);
         write(cfds[i], "test", 4);
     }
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
 
     for (i = 0; i < NUM_CONNECTIONS; i++) {
         close(cfds[i]);
@@ -121,6 +133,8 @@ int main(int argc, char *argv[]) {
     }
 
     printf(P_GREEN "Stress test results:" P_RESET "\n");
+
+    printf(P_YELLOW "Total time:" P_RESET " %.3fs\n", timespec_diff(&end, &start));
 
     return 0;
 }

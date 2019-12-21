@@ -40,3 +40,9 @@ int get_n_cpus() {
 #endif
 }
 
+
+double timespec_diff(struct timespec *t1, struct timespec *t0) {
+    return ((1000000000LU * t1->tv_sec + t1->tv_nsec) -
+            (1000000000LU * t0->tv_sec + t0->tv_nsec)) / 1000000000.;
+}
+
