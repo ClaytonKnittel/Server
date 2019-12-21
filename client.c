@@ -23,7 +23,7 @@ int accept_client(struct client *client, int sockfd, int flags) {
     return 0;
 }
 
-ssize_t receive_data(struct client *client) {
+ssize_t receive_bytes(struct client *client) {
     ssize_t n_read = dmsg_read(&client->log, client->connfd);
 
     return n_read;
@@ -36,7 +36,7 @@ ssize_t receive_bytes_n(struct client *client, size_t max) {
 }
 
 int close_client(struct client *client) {
-    close(client->connfd);
-    return 0;
+    dmsg_free(&client->log);
+    return close(client->connfd);
 }
 

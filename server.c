@@ -23,6 +23,9 @@
 #include "http.h"
 #include "util.h"
 
+
+static int connect_server(struct server *server);
+
 int init_server(struct server *server, int port) {
     return init_server3(server, port, DEFAULT_BACKLOG);
 }
@@ -80,7 +83,11 @@ int close_server(struct server *server) {
 }
 
 
-int connect_server(struct server *server) {
+/*
+ * binds the socket fd and listens on it, then adds the socket fd to
+ * the event queue (epoll or kqueue)
+ */
+static int connect_server(struct server *server) {
 
     if (bind(server->sockfd, (struct sockaddr *) &server->in,
                 sizeof(struct sockaddr_in)) == -1) {
@@ -91,7 +98,17 @@ int connect_server(struct server *server) {
     }
 
     if (listen(server->sockfd, server->backlog) == -1) {
-        fprintf(stderr, "Unable to listen, reason: %s", strerror(errno));
+        fprintf(stderr, "Unable to listen, reason: %s\n", strerror(errno));
+        close_server(server);
+        return -1;
+    }
+
+    struct kevent listen_ev;
+    EV_SET(&listen_ev, server->sockfd, EVFILT_READ,
+            EV_ADD | EV_DISPATCH, 0, 0, NULL);
+    if (kevent(server->qfd, &listen_ev, 1, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to add server sockfd to " QUEUE_T
+                ", reason: %s\n", strerror(errno));
         close_server(server);
         return -1;
     }
@@ -100,13 +117,67 @@ int connect_server(struct server *server) {
 }
 
 
+static int accept_connection(struct server *server) {
+    struct client *client;
+    struct kevent changelist[2];
+    int ret;
+
+    client = (struct client *) malloc(sizeof(struct client));
+    if (client == NULL) {
+        return -1;
+    }
+
+    ret = accept_client(client, server->sockfd, O_NONBLOCK);
+    if (ret == -1) {
+        free(client);
+        return ret;
+    }
+
+    EV_SET(&changelist[0], client->connfd, EVFILT_READ,
+            EV_ADD | EV_DISPATCH, 0, 0, client);
+    EV_SET(&changelist[1], server->sockfd, 0,
+            EV_ENABLE, 0, 0, NULL);
+    if (kevent(server->qfd, changelist, 2, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to add client fd %d to " QUEUE_T
+                ", reason: %s\n", client->connfd, strerror(errno));
+        free(client);
+        return -1;
+    }
+
+    return 0;
+}
+
 
 #define SIZE 1024
-void start_server(struct server *server) {
-    struct client c;
+void run_server(struct server *server) {
+    struct client *client;
+    struct kevent event;
+    int ret;
+    ssize_t nbytes;
+
     while (1) {
-        accept_client(&c, server->sockfd, O_NONBLOCK);
-        vprintf("Open client\n");
+        if ((ret = kevent(server->qfd, NULL, 0, &event, 1, NULL)) == -1) {
+            fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
+                    strerror(errno));
+            return;
+        }
+        if (event.data == server->sockfd) {
+            accept_connection(server);
+        }
+        else {
+            client = (struct client *) event.udata;
+            nbytes = receive_bytes(client);
+            if (nbytes != ret) {
+                vprintf(P_YELLOW "Received %ld bytes, but expected %d\n"
+                        P_RESET, nbytes, ret);
+            }
+            EV_SET(&event, client->connfd, 0, EV_ENABLE, 0, 0, NULL);
+            if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+                fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
+                        ", reason: %s\n", client->connfd, strerror(errno));
+            }
+        }
+        /*vprintf("Open client\n");
 
         ssize_t ret;
         do {
@@ -123,7 +194,7 @@ void start_server(struct server *server) {
         write(c.connfd, msg, sizeof(msg) - 1);
 
         close_client(&c);
-        vprintf("Close client\n\n");
+        vprintf("Close client\n\n");*/
 
         /*char buf[SIZE + 1];
         if (read(cfd, buf, SIZE) > 0) {

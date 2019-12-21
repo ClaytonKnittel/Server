@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 
 #include "../get_ip_addr.h"
 #include "../util.h"
@@ -130,6 +131,7 @@ int main(int argc, char *argv[]) {
     if (srvpid != -1) {
         // we need to terminate the server
         kill(srvpid, SIGINT);
+        wait(NULL);
     }
 
     printf(P_GREEN "Stress test results:" P_RESET "\n");

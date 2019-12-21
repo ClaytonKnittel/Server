@@ -138,7 +138,7 @@ int main(int argc, char *argv[]) {
     /*printf("Types:\nAF_INET: %x\nAF_UNIX: %x\n",
             AF_INET, AF_UNIX);*/
 
-    start_server(&server);
+    run_server(&server);
 
     // clean up memory used by http processor
     http_exit();
