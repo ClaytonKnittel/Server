@@ -18,7 +18,7 @@
 
 
 volatile int ready;
-int srvpid;
+volatile int srvpid;
 
 void server_initialized(int sig) {
     ready = 1;
@@ -40,7 +40,10 @@ void sigint(int sig) {
         if (srvpid != -1) { \
             kill(srvpid, SIGINT); \
         } \
+        exit(__VA_ARGS__); \
     }
+
+#undef exit
 
 int main(int argc, char *argv[]) {
     struct sockaddr_in server;
@@ -85,7 +88,8 @@ int main(int argc, char *argv[]) {
         // wait for the server to notify us that it has been initialized
         while (!ready && (srvpid != -1));
         if (srvpid == -1) {
-            printf(P_RED "Unable to initialize server" P_RESET "\n");
+            // unable to initialize server
+            wait(NULL);
             return -1;
         }
     }

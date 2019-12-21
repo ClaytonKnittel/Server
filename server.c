@@ -161,15 +161,15 @@ void run_server(struct server *server) {
                     strerror(errno));
             return;
         }
-        printf("Got a connection!\n");
+        vprintf("Got a connection!\n");
         if (event.ident == server->sockfd) {
-            printf("accepting...\n");
+            vprintf("accepting...\n");
             accept_connection(server);
         }
         else {
             client = (struct client *) event.udata;
             if (event.flags & EV_EOF) {
-                printf("disconnected %d\n", client->connfd);
+                vprintf("disconnected %d\n", client->connfd);
                 EV_SET(&event, client->connfd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
                 if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
                     fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
@@ -179,7 +179,7 @@ void run_server(struct server *server) {
                 free(client);
             }
             else {
-                printf("reading...\n");
+                vprintf("reading...\n");
                 nbytes = receive_bytes_n(client, 128);
                 if (nbytes != ret) {
                     vprintf(P_YELLOW "Received %ld bytes, but expected %d\n"
