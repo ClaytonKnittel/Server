@@ -9,17 +9,44 @@
 #include <sys/socket.h>
 
 
+static void usage(const char* program_name) {
+    printf("Usage: %s <ip address>:<port> [-n num clients]\n",
+            program_name);
+    exit(1);
+}
+
+
 int main(int argc, char *argv[]) {
     struct sockaddr_in server;
+    int *socks;
+    int nsocks = 1, port = 80;
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    char *endptr;
+    int c, i;
 
-    int port = 80;
-
-    if (argc != 2) {
-        printf("Usage: %s <ip address>:<port>\n", argv[0]);
-        return 1;
+    if (argc == 1) {
+        usage(argv[0]);
     }
+
+#define NUM_OPT \
+    strtol(optarg, &endptr, 0);                 \
+    if (*optarg == '\0' || *endptr != '\0') {   \
+        usage(argv[0]);                         \
+    }
+
+    while ((c = getopt(argc - 1, argv + 1, "n:")) != -1) {
+        switch(c) {
+        case 'n':
+            nsocks = NUM_OPT;
+            break;
+        case '?':
+            usage(argv[0]);
+        default:
+            return -1;
+        }
+    }
+
+#undef NUM_OPT
 
     char* colon = strchr(argv[1], ':');
     if (colon != NULL) {
@@ -42,15 +69,31 @@ int main(int argc, char *argv[]) {
         return 3;
     }
     
-    printf("Connecting to %s:%d\n", inet_ntoa(server.sin_addr), port);
+    printf("Connecting to %s:%d with %d client(s)\n",
+            inet_ntoa(server.sin_addr), port, nsocks);
 
-    if (connect(sock, (struct sockaddr*) &server, sizeof(struct sockaddr_in)) == -1) {
-        printf("Unable to connect socket to port %d, reason %s\n", port, strerror(errno));
-        return -1;
+    socks = (int*) malloc(nsocks * sizeof(int));
+    for (i = 0; i < nsocks; i++) {
+        socks[i] = socket(AF_INET, SOCK_STREAM, 0);
+        if (socks[i] == -1) {
+            printf("brokeded: %s\n", strerror(errno));
+        }
+
+        if (connect(socks[i], (struct sockaddr*) &server,
+                    sizeof(struct sockaddr_in)) == -1) {
+            printf("Unable to connect socket to port %d, ""reason %s\n",
+                    port, strerror(errno));
+            free(socks);
+            return -1;
+        }
     }
 
-    char msg[] = "test message!\n";
-    write(sock, msg, sizeof(msg) - 1);
+    char msg[] = "test message 0!\n";
+
+    for (i = 0; i < nsocks; i++) {
+        write(socks[i], msg, sizeof(msg) - 1);
+        msg[13]++;
+    }
 
     struct timespec dt = {
         .tv_sec = 0,
@@ -58,5 +101,9 @@ int main(int argc, char *argv[]) {
     };
     nanosleep(&dt, NULL);
 
-    close(sock);
+    for (i = 0; i < nsocks; i++) {
+        close(socks[i]);
+    }
+
+    free(socks);
 }

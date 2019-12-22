@@ -88,10 +88,9 @@ void print_server_params(struct server *server) {
     vprintf("Server listening on port: %s:%d\n", get_ip_addr_str(), port);
 }
 
-int close_server(struct server *server) {
+void close_server(struct server *server) {
     // TODO this may be called in an interrupt context
     vprintf("Closing server on fd %d\n", server->sockfd);
-    int ret = 0;
 
     server->running = 0;
 
@@ -105,28 +104,22 @@ int close_server(struct server *server) {
     if (close(server->sockfd) < 0) {
         printf("Closing socket fd %d failed, reason: %s\n",
                 server->sockfd, strerror(errno));
-        ret = -1;
     }
 
     if (close(server->qfd) < 0) {
         printf("Closing " QUEUE_T " fd %d failed, reason: %s\n",
                 server->qfd, strerror(errno));
-        ret = -1;
     }
 
     if (close(server->term_read) < 0) {
         printf("Closing term read fd %d failed, reason: %s\n",
                 server->term_read, strerror(errno));
-        ret = -1;
     }
     
     if (close(server->term_write) < 0) {
         printf("Closing term write fd %d failed, reason: %s\n",
                 server->term_write, strerror(errno));
-        ret = -1;
     }
-
-    return ret;
 }
 
 
@@ -224,7 +217,7 @@ static void* _run(void *server_arg) {
             printf(QUEUE_T " call failed, reason: %s\n", strerror(errno));
         }
         if (event.ident == server->term_read) {
-            printf("Hey it worked\n");
+            // TODO allow remaining connections to finish ?
             return NULL;
         }
         if (event.ident == server->sockfd) {
@@ -273,7 +266,7 @@ static void* _run(void *server_arg) {
 
 int run_server(struct server *server) {
 
-    if (init_mt_context(&server->mt, 2, &_run, server, 0) == -1) {
+    if (init_mt_context(&server->mt, 4, &_run, server, 0) == -1) {
         return -1;
     }
 

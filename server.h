@@ -59,7 +59,7 @@ void print_server_params(struct server *server);
  * close the socket fd of the server which was bound to listen,
  * and deallocate memory referenced by the server struct
  */
-int close_server(struct server *server);
+void close_server(struct server *server);
 
 /*
  * spawns multiple threads and begins the main loop of the server, in

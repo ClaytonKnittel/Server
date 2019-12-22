@@ -1,4 +1,4 @@
-CFLAGS=-c -g -O3 -std=c99 -pthread -D DEBUG
+CFLAGS=-c -g -O2 -std=c99 -pthread -D DEBUG
 
 MAIN=main
 TEST_FOLDER=test

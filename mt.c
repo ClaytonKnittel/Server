@@ -104,7 +104,6 @@ void exit_mt_routine(struct mt_context *context) {
     for (i = 0; i < context->n_threads; i++) {
         pthread_join(threads[i], NULL);
     }
-    printf("Freed threads\n");
 
     if (context->threads != NULL) {
         free(context->threads);
