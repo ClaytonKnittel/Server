@@ -33,6 +33,8 @@ int init_server(struct server *server, int port) {
 }
 
 int init_server3(struct server *server, int port, int backlog) {
+    int ret = 0;
+
     memset(&server->in, 0, sizeof(server->in));
 
     server->in.sin_family = AF_INET;
@@ -52,13 +54,29 @@ int init_server3(struct server *server, int port, int backlog) {
     if (server->qfd < 0) {
         printf("Unable to initialize " QUEUE_T ", reason: %s\n",
                 strerror(errno));
+        ret = -1;
+    }
+
+    server->running = 1;
+
+    if (pipe(server->term_pipe) == -1) {
+        printf("Unable to initialize pipe, reason: %s\n",
+                strerror(errno));
+        ret = -1;
     }
 
     clear_mt_context(&server->mt);
 
     vprintf("Num cpus: %d\n", get_n_cpus());
 
-    return connect_server(server);
+    if (connect_server(server) == -1) {
+        ret = -1;
+    }
+    
+    if (ret != 0) {
+        close(server->sockfd);
+    }
+    return ret;
 }
 
 void print_server_params(struct server *server) {
@@ -75,6 +93,13 @@ int close_server(struct server *server) {
     vprintf("Closing server on fd %d\n", server->sockfd);
     int ret = 0;
 
+    server->running = 0;
+
+    // write to the term pipe so all threads will be notified that the server
+    // is shutting down
+    write(server->term_write, "x", 1);
+
+    // join with all threads
     exit_mt_routine(&server->mt);
 
     if (close(server->sockfd) < 0) {
@@ -89,6 +114,18 @@ int close_server(struct server *server) {
         ret = -1;
     }
 
+    if (close(server->term_read) < 0) {
+        printf("Closing term read fd %d failed, reason: %s\n",
+                server->term_read, strerror(errno));
+        ret = -1;
+    }
+    
+    if (close(server->term_write) < 0) {
+        printf("Closing term write fd %d failed, reason: %s\n",
+                server->term_write, strerror(errno));
+        ret = -1;
+    }
+
     return ret;
 }
 
@@ -96,6 +133,8 @@ int close_server(struct server *server) {
 /*
  * binds the socket fd and listens on it, then adds the socket fd to
  * the event queue (epoll or kqueue)
+ * 
+ * returns 0 on success and -1 on failure
  */
 static int connect_server(struct server *server) {
 
@@ -113,12 +152,14 @@ static int connect_server(struct server *server) {
         return -1;
     }
 
-    struct kevent listen_ev;
-    EV_SET(&listen_ev, server->sockfd, EVFILT_READ,
+    struct kevent listen_ev[2];
+    EV_SET(&listen_ev[0], server->sockfd, EVFILT_READ,
             EV_ADD | EV_DISPATCH, 0, 0, NULL);
-    if (kevent(server->qfd, &listen_ev, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to add server sockfd to " QUEUE_T
-                ", reason: %s\n", strerror(errno));
+    EV_SET(&listen_ev[1], server->term_read, EVFILT_READ,
+            EV_ADD, 0, 0, NULL);
+    if (kevent(server->qfd, listen_ev, 2, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to add server sockfd and term pipe read to "
+                QUEUE_T ", reason: %s\n", strerror(errno));
         close_server(server);
         return -1;
     }
@@ -131,6 +172,10 @@ static int accept_connection(struct server *server) {
     struct client *client;
     struct kevent changelist[2];
     int ret;
+
+    if (!server->running) {
+        return -1;
+    }
 
     client = (struct client *) malloc(sizeof(struct client));
     if (client == NULL) {
@@ -161,15 +206,14 @@ static int accept_connection(struct server *server) {
 #define SIZE 1024
 
 static void* _run(void *server_arg) {
-    struct server *server = (struct server *) server_arg;
+    struct mt_args *args = (struct mt_args *) server_arg;
+    struct server *server = (struct server *) args->arg;
     struct client *client;
     struct kevent event;
     int ret;
     ssize_t nbytes;
 
-    static int threadno = 0;
-
-    int thread = __atomic_fetch_add(&threadno, 1, __ATOMIC_ACQ_REL);
+    int thread = args->thread_id;;
 
     char msg[] = "thread 0 begin\n";
     msg[7] += thread;
@@ -177,13 +221,19 @@ static void* _run(void *server_arg) {
 
     while (1) {
         if ((ret = kevent(server->qfd, NULL, 0, &event, 1, NULL)) == -1) {
-            fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
-                    strerror(errno));
+            printf(QUEUE_T " call failed, reason: %s\n", strerror(errno));
+        }
+        if (event.ident == server->term_read) {
+            printf("Hey it worked\n");
             return NULL;
         }
         if (event.ident == server->sockfd) {
-            vprintf("Thread %d accepting...\n", thread);
-            accept_connection(server);
+            if (accept_connection(server) == 0) {
+                vprintf("Thread %d accepting...\n", thread);
+            }
+            else {
+                vprintf("Thread %d denied connection\n", thread);
+            }
         }
         else {
             client = (struct client *) event.udata;
@@ -208,7 +258,7 @@ static void* _run(void *server_arg) {
             }
             else {
                 vprintf("Thread %d reading...\n", thread);
-                nbytes = receive_bytes_n(client, 128);
+                nbytes = receive_bytes_n(client, 4);
                 EV_SET(&event, client->connfd, EVFILT_READ,
                         EV_ENABLE | EV_DISPATCH, 0, 0, client);
                 if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {

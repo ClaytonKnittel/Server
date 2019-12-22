@@ -23,6 +23,22 @@ struct server {
     // which is either epolling (linux) or kqueue (macos)
     int qfd;
 
+    // set to 1 when running, and set back to 0 when the server is shut down
+    // which prevents a thread which may have returned from a blocking system
+    // call (like kqueue or epoll) from continuing to operate
+    volatile int running;
+
+    // this pipe is written to when the server begins shutdown. Each thread
+    // which pulls this off the queue will simply place it back in the queue
+    // and terminate itself gracefully
+    union {
+        int term_pipe[2];
+        struct {
+            int term_read;
+            int term_write;
+        };
+    };
+
 };
 
 

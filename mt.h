@@ -6,6 +6,18 @@ struct mt_context {
     size_t n_threads;
 };
 
+
+/*
+ * argument struct passed to the initialization function in create_mt_context.
+ * arg is the same as the arg passed into that method, and thread_id is a
+ * unique identifier given to that thread, with the main thread being given
+ * an id of 0
+ */
+struct mt_args {
+    void *arg;
+    int thread_id;
+};
+
 #define MT_PARTITION 0x1
 #define MT_SYNC_BARRIER 0x2
 
@@ -13,6 +25,7 @@ struct mt_context {
 __inline void clear_mt_context(struct mt_context *context) {
     memset(context, 0, sizeof(struct mt_context));
 }
+
 
 /*
  * initializes the specified number of threads, all with callback start_routine
