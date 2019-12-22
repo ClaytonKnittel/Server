@@ -1,12 +1,14 @@
 #include <ctype.h>
 #include <errno.h>
+#include <pthread.h>
+#include <string.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 #include <sys/fcntl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <string.h>
 
 #ifdef __APPLE__
 #define QUEUE_T "kqueue"
@@ -47,6 +49,12 @@ int init_server3(struct server *server, int port, int backlog) {
 #elif __linux__
                   epoll_create(1);
 #endif
+    if (server->qfd < 0) {
+        printf("Unable to initialize " QUEUE_T ", reason: %s\n",
+                strerror(errno));
+    }
+
+    clear_mt_context(&server->mt);
 
     vprintf("Num cpus: %d\n", get_n_cpus());
 
@@ -66,6 +74,8 @@ int close_server(struct server *server) {
     // TODO this may be called in an interrupt context
     vprintf("Closing server on fd %d\n", server->sockfd);
     int ret = 0;
+
+    exit_mt_routine(&server->mt);
 
     if (close(server->sockfd) < 0) {
         printf("Closing socket fd %d failed, reason: %s\n",
@@ -136,7 +146,7 @@ static int accept_connection(struct server *server) {
     EV_SET(&changelist[0], client->connfd, EVFILT_READ,
             EV_ADD | EV_DISPATCH, 0, 0, client);
     EV_SET(&changelist[1], server->sockfd, EVFILT_READ,
-            EV_ENABLE, 0, 0, NULL);
+            EV_ENABLE | EV_DISPATCH, 0, 0, NULL);
     if (kevent(server->qfd, changelist, 2, NULL, 0, NULL) == -1) {
         fprintf(stderr, "Unable to add client fd %d to " QUEUE_T
                 ", reason: %s\n", client->connfd, strerror(errno));
@@ -149,85 +159,73 @@ static int accept_connection(struct server *server) {
 
 
 #define SIZE 1024
-void run_server(struct server *server) {
+
+static void* _run(void *server_arg) {
+    struct server *server = (struct server *) server_arg;
     struct client *client;
     struct kevent event;
     int ret;
     ssize_t nbytes;
 
+    static int threadno = 0;
+
+    int thread = __atomic_fetch_add(&threadno, 1, __ATOMIC_ACQ_REL);
+
+    char msg[] = "thread 0 begin\n";
+    msg[7] += thread;
+    write(STDOUT_FILENO, msg, sizeof(msg));
+
     while (1) {
         if ((ret = kevent(server->qfd, NULL, 0, &event, 1, NULL)) == -1) {
             fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
                     strerror(errno));
-            return;
+            return NULL;
         }
-        vprintf("Got a connection!\n");
         if (event.ident == server->sockfd) {
-            vprintf("accepting...\n");
+            vprintf("Thread %d accepting...\n", thread);
             accept_connection(server);
         }
         else {
             client = (struct client *) event.udata;
             if (event.flags & EV_EOF) {
-                vprintf("disconnected %d\n", client->connfd);
-                EV_SET(&event, client->connfd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+                vprintf("Thread %d disconnected %d\n", thread, client->connfd);
+
+                //dmsg_print(&client->log, STDOUT_FILENO);
+                write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+                dmsg_write(&client->log, STDOUT_FILENO);
+                write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
+
+
+                EV_SET(&event, client->connfd, EVFILT_READ,
+                        EV_DELETE, 0, 0, NULL);
                 if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-                    fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
-                            ", reason: %s\n", client->connfd, strerror(errno));
+                    fprintf(stderr, "Unable to delete client fd %d to "
+                            QUEUE_T ", reason: %s\n", client->connfd,
+                            strerror(errno));
                 }
                 close_client(client);
                 free(client);
             }
             else {
-                vprintf("reading...\n");
+                vprintf("Thread %d reading...\n", thread);
                 nbytes = receive_bytes_n(client, 128);
-                if (nbytes != ret) {
-                    vprintf(P_YELLOW "Received %ld bytes, but expected %d\n"
-                            P_RESET, nbytes, ret);
-                }
-                EV_SET(&event, client->connfd, EVFILT_READ, EV_ENABLE, 0, 0, client);
+                EV_SET(&event, client->connfd, EVFILT_READ,
+                        EV_ENABLE | EV_DISPATCH, 0, 0, client);
                 if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-                    fprintf(stderr, "Unable to re-enable client fd %d to " QUEUE_T
-                            ", reason: %s\n", client->connfd, strerror(errno));
+                    fprintf(stderr, "Unable to re-enable client fd %d to "
+                            QUEUE_T ", reason: %s\n", client->connfd,
+                            strerror(errno));
                 }
             }
         }
-        /*vprintf("Open client\n");
+    }
+}
 
-        ssize_t ret;
-        do {
-            ret = receive_bytes_n(&c, 60);
-        } while (c.log.len == 0 || ret > 0);
-        //dmsg_write(&c.log, STDOUT_FILENO);
-        char msg[] =    "HTTP/1.1 200 OK\n"
-                        "Date: Thu, 19 Dec 2019 10:46:30 GMT\n"
-                        "Server: Clayton/0.1\n"
-                        "Last-Modified: Mon, 02 Sep 2019 02:29:25 GMT\n"
-                        "Content-Length: 24\n"
-                        "Content-Type: text/plain; charset=UTF-8n\n\n"
-                        "Hey this is a response!\n";
-        write(c.connfd, msg, sizeof(msg) - 1);
+int run_server(struct server *server) {
 
-        close_client(&c);
-        vprintf("Close client\n\n");*/
-
-        /*char buf[SIZE + 1];
-        if (read(cfd, buf, SIZE) > 0) {
-            buf[SIZE] = '\0';
-            printf(P_CYAN "%s" P_RESET, buf);
-            char msg[] =    "HTTP/1.1 200 OK\n"
-                            "Date: Thu, 19 Dec 2019 10:46:30 GMT\n"
-                            "Server: Clayton/0.1\n"
-                            "Last-Modified: Mon, 02 Sep 2019 02:29:25 GMT\n"
-                            "Content-Length: 24\n"
-                            "Content-Type: text/plain; charset=UTF-8n\n\n"
-                            "Hey this is a response!\n";
-            write(cfd, msg, sizeof(msg) - 1);
-            //break;
-        }
-
-        vprintf("Closing connection %d\n", cfd);*/
+    if (init_mt_context(&server->mt, 2, &_run, server, 0) == -1) {
+        return -1;
     }
 
-    close_server(server);
+    return 0;
 }

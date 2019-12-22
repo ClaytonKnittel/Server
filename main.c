@@ -26,6 +26,9 @@
 #endif
 
 
+static struct server server;
+
+
 void usage(const char* program_name) {
     printf("Usage: %s [options]\n\n"
            "\t-p port\t\tthe port the server should listen on.\n"
@@ -139,9 +142,6 @@ int main(int argc, char *argv[]) {
             AF_INET, AF_UNIX);*/
 
     run_server(&server);
-
-    // clean up memory used by http processor
-    http_exit();
 
     return 0;
 }

@@ -1,11 +1,12 @@
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <string.h>
-#include <stdlib.h>
 
 
 int main(int argc, char *argv[]) {
@@ -47,5 +48,15 @@ int main(int argc, char *argv[]) {
         printf("Unable to connect socket to port %d, reason %s\n", port, strerror(errno));
         return -1;
     }
+
+    char msg[] = "test message!\n";
+    write(sock, msg, sizeof(msg) - 1);
+
+    struct timespec dt = {
+        .tv_sec = 0,
+        .tv_nsec = 1000000
+    };
+    nanosleep(&dt, NULL);
+
     close(sock);
 }

@@ -1,11 +1,17 @@
 
+#include <sys/socket.h>
+
+#include "mt.h"
+
 #define DEFAULT_BACKLOG 50
 
 #define DEFAULT_PORT 80
 
 
-static struct server {
+struct server {
     struct sockaddr_in in;
+
+    struct mt_context mt;
 
     int sockfd;
 
@@ -17,7 +23,7 @@ static struct server {
     // which is either epolling (linux) or kqueue (macos)
     int qfd;
 
-} server;
+};
 
 
 /*
@@ -40,12 +46,12 @@ void print_server_params(struct server *server);
 int close_server(struct server *server);
 
 /*
- * begins the main loop of the server, in which the thread waits until
- * notified by the kernel that either a new connection has been made
- * and is ready to be processed, or a client socket has become available
- * for writing
+ * spawns multiple threads and begins the main loop of the server, in
+ * which the threads wait until notified by the kernel that either a
+ * new connection has been made and is ready to be processed, or a
+ * client socket has become available for writing
  *
- * this method is designed to be thread-safe
+ * returns 0 on success or nonzero on failure
  */
-void run_server(struct server *server);
+int run_server(struct server *server);
 
