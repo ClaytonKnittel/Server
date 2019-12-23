@@ -90,10 +90,11 @@ int main(int argc, char *argv[]) {
 
     char msg[] = "test message 0!\n";
 
-    for (i = 0; i < nsocks; i++) {
+    for (i = 0; i < nsocks - 1; i++) {
         write(socks[i], msg, sizeof(msg) - 1);
         msg[13]++;
     }
+    write(socks[nsocks - 1], "exit", 4);
 
     struct timespec dt = {
         .tv_sec = 0,

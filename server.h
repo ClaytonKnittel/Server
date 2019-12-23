@@ -48,24 +48,28 @@ struct server {
 int init_server(struct server *server, int port);
 
 /*
- * initialize all data structures in the server struct, and construct
- * the socket fd which is to be used for connecting to this server
+ * initialize all data structures in the server struct, and construct the
+ * socket fd which is to be used for connecting to this server
  */
 int init_server3(struct server *server, int port, int backlog);
 
 void print_server_params(struct server *server);
 
 /*
- * close the socket fd of the server which was bound to listen,
- * and deallocate memory referenced by the server struct
+ * close the socket fd of the server which was bound to listen, and deallocate
+ * memory referenced by the server struct
+ *
+ * this method is not safe to be called within a worker thread. If the server
+ * needs to be shut down within a worker thread, call kill(getpid(), SIGINT) to
+ * trigger shutdown
  */
 void close_server(struct server *server);
 
 /*
- * spawns multiple threads and begins the main loop of the server, in
- * which the threads wait until notified by the kernel that either a
- * new connection has been made and is ready to be processed, or a
- * client socket has become available for writing
+ * spawns multiple threads and begins the main loop of the server, in which
+ * the threads wait until notified by the kernel that either a new connection
+ * has been made and is ready to be processed, or a client socket has become
+ * available for writing
  *
  * returns 0 on success or nonzero on failure
  */

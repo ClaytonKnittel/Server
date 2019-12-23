@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <string.h>
@@ -238,6 +239,11 @@ static void* _run(void *server_arg) {
                 dmsg_write(&client->log, STDOUT_FILENO);
                 write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
 
+#ifdef DEBUG
+                char buf[100];
+                buf[4] = '\0';
+                dmsg_cpy(&client->log, buf);
+#endif
 
                 EV_SET(&event, client->connfd, EVFILT_READ,
                         EV_DELETE, 0, 0, NULL);
@@ -248,6 +254,12 @@ static void* _run(void *server_arg) {
                 }
                 close_client(client);
                 free(client);
+
+#ifdef DEBUG
+                if (strcmp(buf, "exit") == 0) {
+                    kill(getpid(), SIGINT);
+                }
+#endif
             }
             else {
                 vprintf("Thread %d reading...\n", thread);
