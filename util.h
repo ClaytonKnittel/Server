@@ -1,6 +1,9 @@
 #ifndef _UTIL_H
 #define _UTIL_H
 
+#ifdef __linux__
+#include <sys/time.h>
+#endif
 #include <time.h>
 #include <stddef.h>
 
