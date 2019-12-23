@@ -21,12 +21,15 @@ kern_return_t   thread_policy_get(
                     mach_msg_type_number_t  *count,
                     boolean_t               *get_default);
 
+#define AFFINITY_TAG_OFFSET 0x80
+
 #endif
 
 #include <pthread.h>
 #include <stdlib.h>
 
 #include "mt.h"
+#include "util.h"
 #include "vprint.h"
 
 
@@ -44,7 +47,7 @@ int pthread_setaffinity(pthread_t thread, size_t cpu) {
     thread_port_t mthread = pthread_mach_thread_np(thread);
     thread_affinity_policy_data_t policy = { cpu };
     kern_return_t ret = thread_policy_set(mthread, THREAD_AFFINITY_POLICY,
-            (thread_policy_t) &policy, 1);
+            (thread_policy_t) &policy, THREAD_AFFINITY_POLICY_COUNT);
     if (ret != KERN_SUCCESS) {
         fprintf(stderr, "Thread policy set failed, returned %d\n", ret);
     }
@@ -68,7 +71,7 @@ size_t pthread_getaffinity(pthread_t thread) {
 
     thread_port_t mthread = pthread_mach_thread_np(thread);
     thread_affinity_policy_data_t policy;
-    mach_msg_type_number_t cnt;
+    mach_msg_type_number_t cnt = THREAD_AFFINITY_POLICY_COUNT;
     boolean_t get_default;
     kern_return_t ret = thread_policy_get(mthread, THREAD_AFFINITY_POLICY,
             (thread_policy_t) &policy, &cnt, &get_default);
@@ -97,11 +100,11 @@ static void* thread_init(void* data) {
         .thread_id = info->thread_id
     };
 
-    free(info);
-    pthread_setaffinity(pthread_self(), arg.thread_id);
-    printf("Thread %d has affinity tag %lu\n", arg.thread_id,
-            pthread_getaffinity(pthread_self()));
+    if (info->flags & MT_PARTITION) {
+        pthread_setaffinity(pthread_self(), AFFINITY_TAG_OFFSET + arg.thread_id);
+    }
 
+    free(info);
     // now that memory cleanup has completed, allow cancellation
     // of this thread
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -115,11 +118,21 @@ int init_mt_context(struct mt_context *context, size_t n_threads,
     struct thread_info *ti;
     pthread_attr_t attr;
     size_t i;
-    int err;
+    int err, ncpus;
     pthread_t *threads;
 #ifdef __linux__
     cpu_set_t cpu_aff;
 #endif
+
+    if (options & MT_PARTITION) {
+        ncpus = get_n_cpus();
+        if (n_threads != ncpus) {
+            fprintf(stderr, "Number of threads (%lu) must equal number of "
+                    "logical processing units (%d) if MT_PARTITION is set\n",
+                    n_threads, ncpus);
+            return -1;
+        }
+    }
 
     pthread_attr_init(&attr);
     pthread_attr_setinheritsched(&attr, PTHREAD_INHERIT_SCHED);
@@ -147,10 +160,9 @@ int init_mt_context(struct mt_context *context, size_t n_threads,
         ti->flags = options;
         ti->thread_id = ((int) i) + 1;
 
-        int cpu_no = i % 4;
 #ifdef __linux__
         CPU_ZERO(&cpu_aff);
-        CPU_SET(cpu_no, &cpu_aff);
+        CPU_SET(ti->thread_id, &cpu_aff);
         pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpu_aff);
 #endif
 
@@ -168,7 +180,6 @@ int init_mt_context(struct mt_context *context, size_t n_threads,
             pthread_attr_destroy(&attr);
             return -1;
         }
-        pthread_setaffinity(threads[i], cpu_no);
     }
     pthread_attr_destroy(&attr);
 
@@ -180,6 +191,10 @@ int init_mt_context(struct mt_context *context, size_t n_threads,
     ti->arg = arg;
     ti->flags = options;
     ti->thread_id = 0;
+
+#ifdef __linux__
+    pthread_setaffinity(pthread_self(), 0);
+#endif
     thread_init(ti);
     return 0;
 }

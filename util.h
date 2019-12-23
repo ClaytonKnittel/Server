@@ -9,14 +9,14 @@
 int dec_width(int pow2);
 
 // gives the first set bit of val, assuming val is not zero
-int __inline first_set_bit(size_t val) {
+static int __inline first_set_bit(size_t val) {
     size_t pos;
     __asm__("bsf %1, %0" : "=r" (pos) : "rm" (val));
     return (int) pos;
 }
 
 // gives the last set bit of val, assuming val is not zero
-int __inline last_set_bit(size_t val) {
+static int __inline last_set_bit(size_t val) {
     size_t pos;
     __asm__("bsr %1, %0" : "=r" (pos) : "rm" (val));
     return (int) pos;

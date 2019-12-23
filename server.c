@@ -278,7 +278,7 @@ static void* _run(void *server_arg) {
 
 int run_server(struct server *server) {
 
-    if (init_mt_context(&server->mt, 4, &_run, server, 0) == -1) {
+    if (init_mt_context(&server->mt, 8, &_run, server, MT_PARTITION) == -1) {
         return -1;
     }
 
