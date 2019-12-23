@@ -197,6 +197,58 @@ static int accept_connection(struct server *server) {
 }
 
 
+static int read_from(struct server *server, struct client *client, int thread) {
+    struct kevent event;
+    ssize_t nbytes;
+
+    vprintf("Thread %d reading...\n", thread);
+
+    nbytes = receive_bytes_n(client, 4);
+    EV_SET(&event, client->connfd, EVFILT_READ,
+            EV_ENABLE | EV_DISPATCH, 0, 0, client);
+    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to re-enable client fd %d to "
+                QUEUE_T ", reason: %s\n", client->connfd,
+                strerror(errno));
+    }
+    return 0;
+}
+
+
+static int disconnect(struct server *server, struct client *client, int thread) {
+    struct kevent event;
+    vprintf("Thread %d disconnected %d\n", thread, client->connfd);
+
+    //dmsg_print(&client->log, STDOUT_FILENO);
+    write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+    dmsg_write(&client->log, STDOUT_FILENO);
+    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
+
+#ifdef DEBUG
+    char buf[100];
+    buf[4] = '\0';
+    dmsg_cpy(&client->log, buf);
+#endif
+
+    EV_SET(&event, client->connfd, EVFILT_READ,
+            EV_DELETE, 0, 0, NULL);
+    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to delete client fd %d to "
+                QUEUE_T ", reason: %s\n", client->connfd,
+                strerror(errno));
+    }
+    close_client(client);
+    free(client);
+
+#ifdef DEBUG
+    if (strcmp(buf, "exit") == 0) {
+        kill(getpid(), SIGINT);
+    }
+#endif
+    return 0;
+}
+
+
 #define SIZE 1024
 
 static void* _run(void *server_arg) {
@@ -205,7 +257,6 @@ static void* _run(void *server_arg) {
     struct client *client;
     struct kevent event;
     int ret;
-    ssize_t nbytes;
 
     int thread = args->thread_id;;
 
@@ -232,45 +283,10 @@ static void* _run(void *server_arg) {
         else {
             client = (struct client *) event.udata;
             if (event.flags & EV_EOF) {
-                vprintf("Thread %d disconnected %d\n", thread, client->connfd);
-
-                //dmsg_print(&client->log, STDOUT_FILENO);
-                write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
-                dmsg_write(&client->log, STDOUT_FILENO);
-                write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
-
-#ifdef DEBUG
-                char buf[100];
-                buf[4] = '\0';
-                dmsg_cpy(&client->log, buf);
-#endif
-
-                EV_SET(&event, client->connfd, EVFILT_READ,
-                        EV_DELETE, 0, 0, NULL);
-                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-                    fprintf(stderr, "Unable to delete client fd %d to "
-                            QUEUE_T ", reason: %s\n", client->connfd,
-                            strerror(errno));
-                }
-                close_client(client);
-                free(client);
-
-#ifdef DEBUG
-                if (strcmp(buf, "exit") == 0) {
-                    kill(getpid(), SIGINT);
-                }
-#endif
+                disconnect(server, client, thread);
             }
             else {
-                vprintf("Thread %d reading...\n", thread);
-                nbytes = receive_bytes_n(client, 4);
-                EV_SET(&event, client->connfd, EVFILT_READ,
-                        EV_ENABLE | EV_DISPATCH, 0, 0, client);
-                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-                    fprintf(stderr, "Unable to re-enable client fd %d to "
-                            QUEUE_T ", reason: %s\n", client->connfd,
-                            strerror(errno));
-                }
+                read_from(server, client, thread);
             }
         }
     }
