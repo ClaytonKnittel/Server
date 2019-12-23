@@ -11,8 +11,6 @@
 
 int vlevel = V1;
 
-static int sio_print_lock = UNLOCKED;
-
 int _vprintf(const char * restrict format, ...) {
     va_list arg;
     int ret;

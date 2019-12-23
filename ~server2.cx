@@ -32,7 +32,7 @@
 
 // each epoll event will have its data field point to a client struct, but
 // for connections which are not clients, only the connfd field will be used
-typedef struct client epoll_data_ptr_t;
+typedef struct client epoll_data_t;
 
 #endif
 
@@ -91,6 +91,7 @@ int init_server3(struct server *server, int port, int backlog) {
 }
 
 void print_server_params(struct server *server) {
+    char ip_str[INET_ADDRSTRLEN];
     uint16_t port;
 
     port = ntohs(server->in.sin_port);
@@ -168,24 +169,20 @@ static int connect_server(struct server *server) {
         return -1;
     }
 #elif __linux__
-    struct epoll_event listen_ev = {
-#ifdef EPOLLEXCLUSIVE
+    struct epoll_event event = {
         .events = EPOLLIN | EPOLLEXCLUSIVE,
-#else
-        .events = EPOLLIN | EPOLLONESHOT,
-#endif
         // safe as long as the rest of data is never accessed, which it
         // shouldn't be for the sockfd
         .data.ptr = ((char*) &server->sockfd)
-            - offsetof(epoll_data_ptr_t, connfd)
+            - offsetof(epoll_data_t, connfd)
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->sockfd, &listen_ev);
-    struct epoll_event term_ev = {
+    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->sockfd, &event);
+    event = {
         .events = EPOLLIN,
         .data.ptr = ((char*) &server->term_read)
-            - offsetof(epoll_data_ptr_t, connfd)
+            - offsetof(epoll_data_t, connfd)
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->term_read, &term_ev);
+    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->term_read, &event);
 #endif
 
     return 0;
@@ -194,6 +191,7 @@ static int connect_server(struct server *server) {
 
 static int accept_connection(struct server *server) {
     struct client *client;
+    struct kevent changelist[2];
     int ret;
 
     if (!server->running) {
@@ -212,7 +210,6 @@ static int accept_connection(struct server *server) {
     }
 
 #ifdef __APPLE__
-    struct kevent changelist[2];
     EV_SET(&changelist[0], client->connfd, EVFILT_READ,
             EV_ADD | EV_DISPATCH, 0, 0, client);
     EV_SET(&changelist[1], server->sockfd, EVFILT_READ,
@@ -225,89 +222,12 @@ static int accept_connection(struct server *server) {
     }
 #elif __linux__
     struct epoll_event event = {
-#ifdef EPOLLEXCLUSIVE
         .events = EPOLLIN | EPOLLRDHUP | EPOLLEXCLUSIVE,
-#else
-        .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
-#endif
         .data.ptr = client
     };
     epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event);
-#ifndef EPOLLEXCLUSIVE
-    struct epoll_event listen_ev = {
-        .events = EPOLLIN | EPOLLONESHOT,
-        .data.ptr = ((char*) &server->sockfd)
-            - offsetof(epoll_data_ptr_t, connfd)
-    };
-    epoll_ctl(server->qfd, EPOLL_CTL_MOD, server->sockfd, &listen_ev);
-#endif
 #endif
 
-    return 0;
-}
-
-
-static int read_from(struct server *server, struct client *client, int thread) {
-    vprintf("Thread %d reading...\n", thread);
-
-    receive_bytes_n(client, 4);
-#ifdef __APPLE__
-    struct kevent event;
-    EV_SET(&event, client->connfd, EVFILT_READ,
-            EV_ENABLE | EV_DISPATCH, 0, 0, client);
-    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to re-enable client fd %d to "
-                QUEUE_T ", reason: %s\n", client->connfd,
-                strerror(errno));
-    }
-#elif __linux__
-#ifndef EPOLLEXCLUSIVE
-    struct epoll_event read_ev = {
-        .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
-        .data.ptr = client
-    };
-    epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd, &read_ev);
-#endif
-#endif
-    return 0;
-}
-
-
-static int disconnect(struct server *server, struct client *client, int thread) {
-    vprintf("Thread %d disconnected %d\n", thread, client->connfd);
-
-    //dmsg_print(&client->log, STDOUT_FILENO);
-    write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
-    dmsg_write(&client->log, STDOUT_FILENO);
-    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
-
-#ifdef DEBUG
-    char buf[4096];
-    buf[4] = '\0';
-    dmsg_cpy(&client->log, buf);
-#endif
-
-#ifdef __APPLE__
-    struct kevent event;
-    EV_SET(&event, client->connfd, EVFILT_READ,
-            EV_DELETE, 0, 0, NULL);
-    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to delete client fd %d to "
-                QUEUE_T ", reason: %s\n", client->connfd,
-                strerror(errno));
-    }
-#elif __linux__
-    epoll_ctl(server->qfd, EPOLL_CTL_DEL, client->connfd, NULL);
-#endif
-
-    close_client(client);
-    free(client);
-
-#ifdef DEBUG
-    if (strcmp(buf, "exit") == 0) {
-        kill(getpid(), SIGINT);
-    }
-#endif
     return 0;
 }
 
@@ -324,6 +244,7 @@ static void* _run(void *server_arg) {
     struct epoll_event event;
 #endif
     int ret, fd;
+    ssize_t nbytes;
 
     int thread = args->thread_id;;
 
@@ -336,7 +257,7 @@ static void* _run(void *server_arg) {
 #ifdef __APPLE__
                     kevent(server->qfd, NULL, 0, &event, 1, NULL)
 #elif __linux__
-                    epoll_wait(server->qfd, &event, 1, -1)
+                    epoll_wait(server->qfd, &event, 1, -1);
 #endif
                     ) == -1) {
             printf(QUEUE_T " call failed, reason: %s\n", strerror(errno));
@@ -344,7 +265,7 @@ static void* _run(void *server_arg) {
 #ifdef __APPLE__
         fd = event.ident;
 #elif __linux__
-        fd = ((epoll_data_ptr_t *) event.data.ptr)->connfd;
+        fd = ((struct client *) event.data)->connfd;
 #endif
         if (fd == server->term_read) {
             // TODO allow remaining connections to finish ?
@@ -363,13 +284,48 @@ static void* _run(void *server_arg) {
             client = (struct client *) event.udata;
             if (event.flags & EV_EOF) {
 #elif __linux__
-            client = (struct client *) event.data.ptr;
+            client = (struct client *) event.data;
             if (event.events & EPOLLRDHUP) {
 #endif
-                disconnect(server, client, thread);
+                vprintf("Thread %d disconnected %d\n", thread, client->connfd);
+
+                //dmsg_print(&client->log, STDOUT_FILENO);
+                write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+                dmsg_write(&client->log, STDOUT_FILENO);
+                write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
+
+#ifdef DEBUG
+                char buf[100];
+                buf[4] = '\0';
+                dmsg_cpy(&client->log, buf);
+#endif
+
+                EV_SET(&event, client->connfd, EVFILT_READ,
+                        EV_DELETE, 0, 0, NULL);
+                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+                    fprintf(stderr, "Unable to delete client fd %d to "
+                            QUEUE_T ", reason: %s\n", client->connfd,
+                            strerror(errno));
+                }
+                close_client(client);
+                free(client);
+
+#ifdef DEBUG
+                if (strcmp(buf, "exit") == 0) {
+                    kill(getpid(), SIGINT);
+                }
+#endif
             }
             else {
-                read_from(server, client, thread);
+                vprintf("Thread %d reading...\n", thread);
+                nbytes = receive_bytes_n(client, 4);
+                EV_SET(&event, client->connfd, EVFILT_READ,
+                        EV_ENABLE | EV_DISPATCH, 0, 0, client);
+                if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
+                    fprintf(stderr, "Unable to re-enable client fd %d to "
+                            QUEUE_T ", reason: %s\n", client->connfd,
+                            strerror(errno));
+                }
             }
         }
     }
@@ -377,8 +333,7 @@ static void* _run(void *server_arg) {
 
 int run_server(struct server *server) {
 
-    //if (init_mt_context(&server->mt, get_n_cpus(), &_run, server, MT_PARTITION) == -1) {
-    if (init_mt_context(&server->mt, 1, &_run, server, 0) == -1) {
+    if (init_mt_context(&server->mt, 8, &_run, server, MT_PARTITION) == -1) {
         return -1;
     }
 

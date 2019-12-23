@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include <pthread.h>
 #include <string.h>
 

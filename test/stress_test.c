@@ -1,5 +1,10 @@
+#ifdef __linux__
+#define _BSD_SOURCE
+#endif
+
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -102,6 +107,7 @@ int main(int argc, char *argv[]) {
             colon++;
 
             char *endptr;
+            port = strtol(colon, &endptr, 10);
             if (*colon == '\0' || *endptr != '\0') {
                 fprintf(stderr, "Usage: %s ip_addr[:port]\n", argv[0]);
                 return -1;

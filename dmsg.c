@@ -140,7 +140,7 @@ void dmsg_print(const dmsg_list *list, int fd) {
         dprintf(fd, " node %2u [ %*lu / %-*lu ]:\t%.*s...\n",
                 i, wid, list->list[i].size, wid,
                 dmsg_node_size(list->_init_node_size, i),
-                (int) min(list->list[i].size, 32), list->list[i].msg);
+                (int) min(list->list[i].size, 32), (char*) list->list[i].msg);
     }
 }
 
@@ -198,7 +198,6 @@ size_t dmsg_read(dmsg_list *list, int fd) {
 
 size_t dmsg_read_n(dmsg_list *list, int fd, size_t count) {
     ssize_t remainder, req_size, read_size = 0, total_read = 0;
-    int ret;
 
     while (count > 0) {
         remainder = dmsg_remainder(list);

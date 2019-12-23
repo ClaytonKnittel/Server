@@ -1,4 +1,5 @@
-CFLAGS=-c -g -O3 -std=c99 -pthread -D DEBUG
+CFLAGS=-c -g -Wall -O0 -std=c99 -D DEBUG -D_POSIX_SOURCE -D_GNU_SOURCE
+LIBS=-pthread -lrt
 
 MAIN=main
 TEST_FOLDER=test
@@ -27,13 +28,13 @@ all: $(EXE) $(TEST_FOLDER)
 $(TEST_FOLDER): $(TEXES)
 
 $(EXE): $(OBJ)
-	$(CC) $(OBJ) -o $@
+	$(CC) $(OBJ) -o $@ $(LIBS)
 
 .obj/%.o: %.c
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $< -o $@ $(LIBS)
 
 $(TEXES): $(TEST_FOLDER)/% : .obj/$(TEST_FOLDER)/%.o $(OBJ_DEP)
-	$(CC) $< $(OBJ_DEP) -o $@
+	$(CC) $< $(OBJ_DEP) -o $@ $(LIBS)
 
 -include $(wildcard .obj/*.d)
 

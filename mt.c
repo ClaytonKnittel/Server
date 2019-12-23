@@ -1,5 +1,4 @@
 #ifdef __linux__
-#define _GNU_SOURCE
 #include <sched.h>
 
 #elif __APPLE__

@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 
 #include <sys/socket.h>
 #include "dmsg.h"

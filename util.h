@@ -28,7 +28,6 @@ static int __inline last_set_bit(size_t val) {
 // gives the number of logical cores on this machine
 int get_n_cpus();
 
-
 // calculates the number of seconds between t1 and t0 (t1 - t0)
 double timespec_diff(struct timespec *t1, struct timespec *t0);
 
