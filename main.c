@@ -1,3 +1,7 @@
+#ifdef __linux__
+#define _POSIX_SOURCE
+#endif
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>

@@ -45,7 +45,7 @@ int pthread_setaffinity(pthread_t thread, size_t cpu) {
 #elif __APPLE__
 
     thread_port_t mthread = pthread_mach_thread_np(thread);
-    thread_affinity_policy_data_t policy = { cpu };
+    thread_affinity_policy_data_t policy = { AFFINITY_TAG_OFFSET + cpu };
     kern_return_t ret = thread_policy_set(mthread, THREAD_AFFINITY_POLICY,
             (thread_policy_t) &policy, THREAD_AFFINITY_POLICY_COUNT);
     if (ret != KERN_SUCCESS) {
@@ -101,7 +101,7 @@ static void* thread_init(void* data) {
     };
 
     if (info->flags & MT_PARTITION) {
-        pthread_setaffinity(pthread_self(), AFFINITY_TAG_OFFSET + arg.thread_id);
+        pthread_setaffinity(pthread_self(), arg.thread_id);
     }
 
     free(info);
