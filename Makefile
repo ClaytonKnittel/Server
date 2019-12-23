@@ -1,5 +1,15 @@
-CFLAGS=-c -g -Wall -O0 -std=c99 -D DEBUG -D_POSIX_SOURCE -D_GNU_SOURCE
-LIBS=-pthread -lrt
+UNAME=$(shell uname -s)
+ifeq ($(UNAME),Linux)
+	LIBS=-pthread -ltr
+	FEAT_TEST_MACROS=-D_GNU_SOURCE -D_POSIX_SOURCE
+else ifeq ($(UNAME),Darwin)
+	LIBS=-pthread
+	FEAT_TEST_MACROS=
+else
+	$(error Not compatible for $(UNAME) systems)
+endif
+
+CFLAGS=-c -g -Wall -O0 -std=c99 -D DEBUG $(FEAT_TEST_MACROS)
 
 MAIN=main
 TEST_FOLDER=test
@@ -31,7 +41,7 @@ $(EXE): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LIBS)
 
 .obj/%.o: %.c
-	$(CC) $(CFLAGS) $< -o $@ $(LIBS)
+	$(CC) $(CFLAGS) $< -o $@
 
 $(TEXES): $(TEST_FOLDER)/% : .obj/$(TEST_FOLDER)/%.o $(OBJ_DEP)
 	$(CC) $< $(OBJ_DEP) -o $@ $(LIBS)

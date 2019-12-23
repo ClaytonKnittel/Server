@@ -1,4 +1,4 @@
-#define _BSD_SOURCE /* for gethostname */
+#define _BSD_SOURCE
 
 #include <stdio.h>
 #include <arpa/inet.h>
