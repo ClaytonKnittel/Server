@@ -11,6 +11,11 @@ int accept_client(struct client *client, int sockfd, int flags) {
     memset(&client->sa, 0, len);
     client->connfd = accept(sockfd, &client->sa, &len);
 
+    if (client->connfd == -1) {
+        printf("Unable to accept client, reason: %s\n", strerror(errno));
+        return -1;
+    }
+
     if (fcntl(client->connfd, F_SETFL, flags) == -1) {
         printf("Unable to set file flags, reason: %s\n", strerror(errno));
         return -1;
