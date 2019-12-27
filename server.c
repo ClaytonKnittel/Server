@@ -377,8 +377,8 @@ static void* _run(void *server_arg) {
 
 int run_server(struct server *server) {
 
-    //if (init_mt_context(&server->mt, get_n_cpus(), &_run, server, MT_PARTITION) == -1) {
-    if (init_mt_context(&server->mt, 1, &_run, server, 0) == -1) {
+    if (init_mt_context(&server->mt, get_n_cpus(), &_run, server, MT_PARTITION) == -1) {
+    //if (init_mt_context(&server->mt, 1, &_run, server, 0) == -1) {
         return -1;
     }
 

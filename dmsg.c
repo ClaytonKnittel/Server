@@ -31,16 +31,14 @@ int dmsg_init(dmsg_list *list) {
 int dmsg_init2(dmsg_list *list, unsigned int init_node_size) {
     int ret;
 
-    list->len = 0;
-    list->_offset = 0;
-    list->list_size = 0;
-    list->_init_node_size = init_node_size;
-
     if (init_node_size == 0 || init_node_size & (init_node_size - 1)) {
         printf("Initial node size of dmsg list must be a power of 2, but "
                 "got %u\n", init_node_size);
         return DMSG_INIT_FAIL;
     }
+
+    __builtin_memset(list, 0, offsetof(dmsg_list, _init_node_size));
+    list->_init_node_size = init_node_size;
 
     if ((ret = dmsg_grow(list)) != 0) {
         return ret;
@@ -64,7 +62,7 @@ void dmsg_free(dmsg_list *list) {
  * gives the size of the dmsg_node at the given index,
  * given the size of the first node
  */
-static size_t dmsg_node_size(unsigned int init_node_size, unsigned int idx) {
+static size_t dmsg_node_size(unsigned int init_node_size, unsigned short idx) {
     return ((size_t) init_node_size) << idx;
 }
 
@@ -73,18 +71,20 @@ static size_t dmsg_node_size(unsigned int init_node_size, unsigned int idx) {
  * gives the total number of bytes of data that can be held in
  * those nodes.
  */
-static size_t dmsg_size(unsigned int init_node_size, unsigned int num_nodes) {
+static size_t dmsg_size(unsigned int init_node_size, unsigned short num_nodes) {
     return (dmsg_node_size(init_node_size, num_nodes) - 1) &
         ~(init_node_size - 1);
 }
 
+
 /*
- * calculates how many bytes of data can be written to the last
- * node before needing to allocate another dmsg_node
+ * calculates how many bytes of data can be written to the current
+ * node before needing to write to the next dmsg_node
  */
 static size_t dmsg_remainder(dmsg_list *list) {
     return dmsg_size(list->_init_node_size, list->list_size) - list->len;
 }
+
 
 /*
  * returns a pointer to the last allocated node of the list
@@ -103,9 +103,14 @@ static void* dmsg_end(dmsg_list *list) {
 }
 
 static int dmsg_grow(dmsg_list *list) {
-    int idx = list->list_size;
+    unsigned short idx = list->list_size;
     size_t size;
-    
+
+    if (idx < list->alloc_size) {
+        list->list[idx].size = 0;
+        list->list_size++;
+        return 0;
+    }
     if (idx == MAX_DMSG_LIST_SIZE) {
         return DMSG_OVERFLOW;
     }
@@ -118,6 +123,8 @@ static int dmsg_grow(dmsg_list *list) {
     }
     list->list[idx].size = 0;
 
+    // TODO make one op
+    list->alloc_size++;
     list->list_size++;
     return 0;
 }
@@ -132,7 +139,7 @@ void dmsg_print(const dmsg_list *list, int fd) {
 
     dprintf(fd, "dmsg_list:\n\tmsg len: %lu\n\tnum alloced list nodes: %u\n"
             "\tfirst node size: %u\n",
-            list->len, list->list_size, list->_init_node_size);
+            list->len, list->alloc_size, list->_init_node_size);
 
     base = first_set_bit(list->_init_node_size);
     wid = dec_width((list->list_size - 1) + base);
@@ -268,6 +275,18 @@ static int dmsg_offset_idx(
     return index;
 }
 
+/*
+ * returns a pointer to the memory address of the char at location idx
+ * in the dmsg_list
+ */
+static void* dmsg_at(dmsg_list *list, dmsg_off_t idx) {
+    int list_idx = dmsg_offset_idx(list->_init_node_size, idx);
+    size_t len = dmsg_size(list->_init_node_size, idx);
+
+    return ((char*) (list->list[list_idx].msg)) + (idx - len);
+}
+
+
 
 // -------------------- Stream-like operations --------------------
 
@@ -310,6 +329,13 @@ int dmsg_seek(dmsg_list *list, ssize_t offset, int whence) {
     return 0;
 }
 
+/*
+ * searches from the given offset in the list for the given delimiter
+ */
+static int dmsg_search(dmsg_list *list, size_t offset, char del) {
+    return 1;
+}
+
 size_t dmsg_getline(dmsg_list *list, char *buf, size_t bufsize) {
     size_t remainder, msg_len = 0;
     const size_t ibufsize = bufsize;
@@ -349,26 +375,52 @@ size_t dmsg_getline(dmsg_list *list, char *buf, size_t bufsize) {
         remainder = dmsg_node_size(init_node_size, idx);
         msg_loc = list->list[idx].msg;
     }
-    
-    // we have to increment the offset before in case it is modified by the
-    // statements below
-    list->_offset += msg_len;
 
     if (buf[msg_len - 1] != '\n') {
         if (msg_len == ibufsize) {
-            // if we filled the buffer and the last character read in was not a
-            // newline, then we need to decrement the offset by one, since we'll
-            // be overwriting that last character
-            list->_offset--;
+            // TODO keep track of last location searched to if no newline is
+            // found. That way don't keep searching when only receiving 1 byte
+            // at a time
+            // TODO keep track of last location of newline if one was found,
+            // so very large messages aren't traversed multiple times
+            if (dmsg_search(list, list->_offset + msg_len, '\n')) {
+                // if there is a newline somewhere, then this was a partial
+                // read
+                errno = DMSG_PARTIAL_READ;
+                // if we filled the buffer and the last character read in
+                // was not a newline, then we need to decrement the offset by
+                // one, since we'll be overwriting that last character
+                list->_offset--;
+            }
+            else {
+                // otherwise we tried reading in a line that hasn't been
+                // completely written yet
+                msg_len = 0;
+                errno = DMSG_NO_NEWLINE;
+                return msg_len;
+            }
         }
         else {
-            // if we did not fill the buffer, then we can just add the newline
-            // to the end of the message
-            msg_len++;
+            // if we did not fill the buffer, then we return nothing and set
+            // errno
+            msg_len = 0;
+            errno = DMSG_NO_NEWLINE;
+            return msg_len;
         }
     }
+    else {
+        errno = 0;
+    }
+
+    list->_offset += msg_len;
+
     buf[msg_len - 1] = '\0';
 
     return msg_len;
+}
+
+
+void dmsg_consolidate(dmsg_list *list) {
+    list->_cutoff_offset = list->_offset;
 }
 

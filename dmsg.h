@@ -30,7 +30,10 @@
 #define DMSG_SEEK_NEG 4
 // operation would make the seek pointer greater than the size of the list
 #define DMSG_SEEK_OVERFLOW 5
-
+// no newline character was found in the remainder of the dmsg_list
+#define DMSG_NO_NEWLINE 6
+// the buffer supplied could not fit the entire buffer
+#define DMSG_PARTIAL_READ 7
 
 /*
  * just so I can use my own variable names.
@@ -71,8 +74,19 @@ typedef struct dmsg_list {
      */
     dmsg_off_t _offset;
 
+    /*
+     * used to track the location of the beginning of the dmsg_list, which
+     * is usually 0, but may be some other value whenever dmsg_consolidate
+     * decides not to reshuffle data and instead move this pointer foward
+     * to "cut off" the beginning of the list (for performance benefits)
+     */
+    dmsg_off_t _cutoff_offset;
+
     // number of allocated dmsg_nodes in the list
-    unsigned int list_size;
+    unsigned short alloc_size;
+
+    // number of dmsg_nodes containing data/offset index
+    unsigned short list_size;
 
     /* 
      * size of the first dmsg_node message,
@@ -186,14 +200,34 @@ int dmsg_write(dmsg_list*, int fd);
 int dmsg_seek(dmsg_list*, ssize_t offset, int whence);
 
 /*
- * attempts to read a line from the dmsg_list, either stopping at a newline
+ * attempts to read a line from the dmsg_list, only stopping at a newline
  * character, EOF, or after max number of characters have been read into
  * the buffer. This method terminates the line read with a null terminator,
  * but without the newline character at the end
+ *
+ * if no newline character is found before EOF is reached, then errno is set
+ * to DMSG_NO_NEWLINE, which means that the entire line had not been read into
+ * the dmsg_list yet
+ *
+ * if no newline character is found before the buffer is filled, then
+ * errno is set to DMSG_PARTIAL_READ, meaning the buffer was not large enough
+ * to fill the entire line. In this case, the rest of the dmsg_list is searched
+ * for a newline character. If one is found, then as much of the line as
+ * possible will have been read into the buffer, but dmsg_getline must be
+ * called again to extract more of it. However, if no newline is found, then
+ * errno is set to DMSG_NO_NEWLINE
  *
  * returns the number of bytes successfully read
  */
 size_t dmsg_getline(dmsg_list*, char *buf, size_t bufsize);
 
+
+/*
+ * cuts off all data in the list before the offset pointer, potentially moving
+ * memory around to shrink the size of the dmsg_list. The offset pointer is
+ * then set back to 0, which now points to the same location that the offset
+ * pointer previously pointed to
+ */
+void dmsg_consolidate(dmsg_list*);
 
 #endif /* _DMSG_H */

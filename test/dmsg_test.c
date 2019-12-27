@@ -292,10 +292,13 @@ int main() {
             char buf[SIZE];
 
             assert(dmsg_getline(&list, buf, sizeof(buf)), 5);
+            assert(errno, 0);
             assert(strcmp(buf, "test"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 8);
+            assert(errno, 0);
             assert(strcmp(buf, "message"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(errno, 0);
             assert(strcmp(buf, "two"), 0);
 
             dmsg_free(&list);
@@ -314,16 +317,22 @@ int main() {
             char buf[SIZE];
 
             assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(errno, DMSG_PARTIAL_READ);
             assert(strcmp(buf, "tes"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 2);
+            assert(errno, 0);
             assert(strcmp(buf, "t"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(errno, DMSG_PARTIAL_READ);
             assert(strcmp(buf, "mes"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(errno, DMSG_PARTIAL_READ);
             assert(strcmp(buf, "sag"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 2);
+            assert(errno, 0);
             assert(strcmp(buf, "e"), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
+            assert(errno, 0);
             assert(strcmp(buf, "two"), 0);
 
             dmsg_free(&list);
@@ -343,9 +352,10 @@ int main() {
             char buf[SIZE];
 
             assert(dmsg_getline(&list, buf, sizeof(buf)), 12);
+            assert(errno, 0);
             assert(strcmp(buf, "new message"), 0);
-            assert(dmsg_getline(&list, buf, sizeof(buf)), 6);
-            assert(strcmp(buf, "thris"), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 0);
+            assert(errno, DMSG_NO_NEWLINE);
 
             dmsg_free(&list);
 
@@ -388,8 +398,8 @@ int main() {
             assert(dmsg_getline(&list, buf, sizeof(buf)), 8);
 
             assert(dmsg_seek(&list, 2, SEEK_CUR), 0);
-            assert(dmsg_getline(&list, buf, sizeof(buf)), 4);
-            assert(strcmp(buf, "ris"), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 0);
+            assert(errno, DMSG_NO_NEWLINE);
 
 
             // test SEEK_END
