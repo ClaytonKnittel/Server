@@ -1,6 +1,8 @@
-
+#include <netinet/in.h>
+#include <sys/queue.h>
 #include <sys/socket.h>
 
+#include "client.h"
 #include "mt.h"
 
 #define DEFAULT_BACKLOG 50
@@ -12,6 +14,11 @@ struct server {
     struct sockaddr_in in;
 
     struct mt_context mt;
+
+    // list of all connected clients
+    LIST_HEAD(client_list_head, client) client_list;
+    // spinlock on client_list
+    int client_list_lock;
 
     int sockfd;
 
@@ -74,4 +81,6 @@ void close_server(struct server *server);
  * returns 0 on success or nonzero on failure
  */
 int run_server(struct server *server);
+
+int run_server2(struct server *server, int nthreads);
 

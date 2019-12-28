@@ -20,13 +20,14 @@
 
 
 #ifdef DEBUG
-#define OPTSTR "b:hnp:qvV"
+#define OPTSTR "b:hnp:qt:vV"
 #else
-#define OPTSTR "b:hp:qvV"
+#define OPTSTR "b:hp:qt:vV"
 #endif
 
 
 static struct server server;
+static int nthreads = 0;
 
 
 void usage(const char* program_name) {
@@ -85,6 +86,9 @@ int init(struct server *server, int argc, char *argv[]) {
         case 'q':
             vlevel = V0;
             break;
+        case 't':
+            nthreads = NUM_OPT;
+            break;
         case 'v':
             vlevel = V1;
             break;
@@ -113,6 +117,7 @@ int init(struct server *server, int argc, char *argv[]) {
 #endif
 
     signal(SIGINT, close_handler);
+    signal(SIGUSR2, close_handler);
 
     // initialize const globals in http processor
     http_init();
@@ -141,7 +146,12 @@ int main(int argc, char *argv[]) {
     /*printf("Types:\nAF_INET: %x\nAF_UNIX: %x\n",
             AF_INET, AF_UNIX);*/
 
-    run_server(&server);
+    if (nthreads == 0) {
+        run_server(&server);
+    }
+    else {
+        run_server2(&server, nthreads);
+    }
 
     return 0;
 }

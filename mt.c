@@ -204,10 +204,9 @@ void exit_mt_routine(struct mt_context *context) {
     pthread_t *threads = context->threads;
 
     for (i = 0; i < context->n_threads; i++) {
-        pthread_cancel(threads[i]);
-    }
-    for (i = 0; i < context->n_threads; i++) {
-        pthread_join(threads[i], NULL);
+        if (pthread_join(threads[i], NULL) != 0) {
+            fprintf(stderr, "Pthread join failed\n");
+        }
     }
 
     if (context->threads != NULL) {

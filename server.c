@@ -36,6 +36,28 @@ typedef struct client epoll_data_ptr_t;
 
 #endif
 
+// maximum number of bytes read from a connection in one pass of the main
+// server loop
+#define MAX_READ_SIZE 4096
+
+
+#define UNLOCKED 1
+#define LOCKED 0
+
+
+static __inline void acq_list_lock(struct server *server) {
+    int unlocked = UNLOCKED;
+    // spin until unlocked
+    while (!__atomic_compare_exchange_n(&server->client_list_lock, &unlocked,
+                LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        unlocked = UNLOCKED;
+    }
+}
+
+static __inline void rel_list_lock(struct server *server) {
+    server->client_list_lock = UNLOCKED;
+}
+
 
 static int connect_server(struct server *server);
 
@@ -78,6 +100,9 @@ int init_server3(struct server *server, int port, int backlog) {
 
     clear_mt_context(&server->mt);
 
+    LIST_INIT(&server->client_list);
+    server->client_list_lock = UNLOCKED;
+
     vprintf("Num cpus: %d\n", get_n_cpus());
 
     if (connect_server(server) == -1) {
@@ -99,6 +124,7 @@ void print_server_params(struct server *server) {
 }
 
 void close_server(struct server *server) {
+    struct client *client;
     // TODO this may be called in an interrupt context
     vprintf("Closing server on fd %d\n", server->sockfd);
 
@@ -111,24 +137,17 @@ void close_server(struct server *server) {
     // join with all threads
     exit_mt_routine(&server->mt);
 
-    if (close(server->sockfd) < 0) {
-        printf("Closing socket fd %d failed, reason: %s\n",
-                server->sockfd, strerror(errno));
-    }
+    CHECK(close(server->sockfd));
+    CHECK(close(server->qfd));
+    CHECK(close(server->term_read));
+    CHECK(close(server->term_write));
 
-    if (close(server->qfd) < 0) {
-        printf("Closing " QUEUE_T " fd %d failed, reason: %s\n",
-                server->qfd, strerror(errno));
-    }
-
-    if (close(server->term_read) < 0) {
-        printf("Closing term read fd %d failed, reason: %s\n",
-                server->term_read, strerror(errno));
-    }
-    
-    if (close(server->term_write) < 0) {
-        printf("Closing term write fd %d failed, reason: %s\n",
-                server->term_write, strerror(errno));
+    LIST_FOREACH(client, &server->client_list, list_entry) {
+        if (close_client(client) == 0) {
+            printf("freed %d\n", client->connfd);
+            // only free client if close succeeded
+            free(client);
+        }
     }
 }
 
@@ -217,60 +236,42 @@ static int accept_connection(struct server *server) {
             EV_ADD | EV_DISPATCH, 0, 0, client);
     EV_SET(&changelist[1], server->sockfd, EVFILT_READ,
             EV_ENABLE | EV_DISPATCH, 0, 0, NULL);
-    if (kevent(server->qfd, changelist, 2, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to add client fd %d to " QUEUE_T
-                ", reason: %s\n", client->connfd, strerror(errno));
+    if (CHECK(kevent(server->qfd, changelist, 2, NULL, 0, NULL)) == -1) {
         free(client);
         return -1;
     }
 #elif __linux__
-    struct epoll_event event = {
-        .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
-        .data.ptr = client
-    };
-    epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event);
 #ifndef EPOLLEXCLUSIVE
     struct epoll_event listen_ev = {
         .events = EPOLLIN | EPOLLET | EPOLLONESHOT,
         .data.ptr = ((char*) &server->sockfd)
             - offsetof(epoll_data_ptr_t, connfd)
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_MOD, server->sockfd, &listen_ev);
+    CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, server->sockfd, &listen_ev));
 #endif
-#endif
-
-    return 0;
-}
-
-
-static int read_from(struct server *server, struct client *client, int thread) {
-    vprintf("Thread %d reading...\n", thread);
-
-    receive_bytes_n(client, 64);
-#ifdef __APPLE__
-    struct kevent event;
-    EV_SET(&event, client->connfd, EVFILT_READ,
-            EV_ENABLE | EV_DISPATCH, 0, 0, client);
-    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to re-enable client fd %d to "
-                QUEUE_T ", reason: %s\n", client->connfd,
-                strerror(errno));
-    }
-#elif __linux__
-    struct epoll_event read_ev = {
+    struct epoll_event event = {
         .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
         .data.ptr = client
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd, &read_ev);
+    if (CHECK(epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event)) == -1) {
+        free(client);
+        return -1;
+    }
 #endif
+
+    acq_list_lock(server);
+    // if all succeeded, then add the client to the list of all clients
+    LIST_INSERT_HEAD(&server->client_list, client, list_entry);
+    rel_list_lock(server);
+
     return 0;
 }
 
 
 static int disconnect(struct server *server, struct client *client, int thread) {
+    int ret;
     vprintf("Thread %d disconnected %d\n", thread, client->connfd);
 
-    //dmsg_print(&client->log, STDOUT_FILENO);
     write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
     dmsg_write(&client->log, STDOUT_FILENO);
     write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
@@ -285,25 +286,54 @@ static int disconnect(struct server *server, struct client *client, int thread) 
     struct kevent event;
     EV_SET(&event, client->connfd, EVFILT_READ,
             EV_DELETE, 0, 0, NULL);
-    if (kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to delete client fd %d to "
-                QUEUE_T ", reason: %s\n", client->connfd,
-                strerror(errno));
-    }
+    ret = CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
-    epoll_ctl(server->qfd, EPOLL_CTL_DEL, client->connfd, NULL);
+    ret = CHECK(epoll_ctl(server->qfd, EPOLL_CTL_DEL, client->connfd, NULL));
 #endif
 
-    close_client(client);
-    free(client);
+    if (close_client(client) == 0) {
+        // only free client if close succeeded
+        acq_list_lock(server);
+        LIST_REMOVE(client, list_entry);
+        rel_list_lock(server);
+        free(client);
+    }
 
 #ifdef DEBUG
     if (strcmp(buf, "exit") == 0) {
-        kill(getpid(), SIGINT);
+        kill(getpid(), SIGUSR2);
     }
 #endif
-    return 0;
+    return ret;
 }
+
+
+static int read_from(struct server *server, struct client *client, int thread) {
+    int ret = receive_bytes_n(client, MAX_READ_SIZE);
+    printf("Thread %d read %d bytes from %d\n", thread, ret, client->connfd);
+
+    if (ret == 0) {
+        // if no data was read from the socket, then it has closed, so perform
+        // memory cleanup and remove from event queue
+        return disconnect(server, client, thread);
+    }
+    else {
+#ifdef __APPLE__
+        struct kevent event;
+        EV_SET(&event, client->connfd, EVFILT_READ,
+                EV_ENABLE | EV_DISPATCH, 0, 0, client);
+        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+#elif __linux__
+        struct epoll_event read_ev = {
+            .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
+            .data.ptr = client
+        };
+        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd, &read_ev));
+#endif
+    }
+}
+
+
 
 
 #define SIZE 1024
@@ -355,16 +385,10 @@ static void* _run(void *server_arg) {
         else {
 #ifdef __APPLE__
             client = (struct client *) event.udata;
-            if (event.flags & EV_EOF) {
 #elif __linux__
             client = (struct client *) event.data.ptr;
-            if (event.events & EPOLLRDHUP) {
 #endif
-                disconnect(server, client, thread);
-            }
-            else {
-                read_from(server, client, thread);
-            }
+            read_from(server, client, thread);
         }
     }
 }
@@ -372,7 +396,14 @@ static void* _run(void *server_arg) {
 int run_server(struct server *server) {
 
     if (init_mt_context(&server->mt, get_n_cpus(), &_run, server, MT_PARTITION) == -1) {
-    //if (init_mt_context(&server->mt, 1, &_run, server, 0) == -1) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int run_server2(struct server *server, int nthreads) {
+    if (init_mt_context(&server->mt, nthreads, &_run, server, 0) == -1) {
         return -1;
     }
 

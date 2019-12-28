@@ -1,12 +1,21 @@
+#ifndef _CLIENT_H
+#define _CLIENT_H
 
+#include <sys/queue.h>
 #include <sys/socket.h>
+
 #include "dmsg.h"
 
 struct client {
+    LIST_ENTRY(client) list_entry;
+
+    // file descriptor returned by accept syscall
     int connfd;
 
+    // sockaddr struct associated with server
     struct sockaddr sa;
 
+    // log of all data received from this client
     struct dmsg_list log;
 };
 
@@ -42,7 +51,8 @@ ssize_t receive_bytes_n(struct client *client, size_t max);
  * closes connection fd associated with this client and frees all memory
  * resources associated with it
  *
- * returns 0 on success, -1 on failure and errno is set (by close)
+ * returns 0 on success, -1 if the client has already been closed
  */
 int close_client(struct client *client);
 
+#endif /* _CLIENT_H */

@@ -7,6 +7,19 @@
 #include <time.h>
 #include <stddef.h>
 
+
+#define TOSTRING(s) #s
+
+#define CHECK(val) \
+    ({    \
+        int __retval = (val);   \
+        if (__retval == -1) {   \
+            vfprintf(stderr, TOSTRING(val) " call failed in " __FILE__ ":"  \
+                    TOSTRING(__LINE__) ", reason: %s", strerror(errno)); \
+        }   \
+        __retval;   \
+    })
+
 // gives the character width of the decimal representation of
 // the number 2 ^ pow2, where '^' is the power operation
 int dec_width(int pow2);

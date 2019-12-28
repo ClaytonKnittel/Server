@@ -72,6 +72,8 @@ int main(int argc, char *argv[]) {
     printf("Connecting to %s:%d with %d client(s)\n",
             inet_ntoa(server.sin_addr), port, nsocks);
 
+    char msg[] = "test message 0!\n";
+
     socks = (int*) malloc(nsocks * sizeof(int));
     for (i = 0; i < nsocks; i++) {
         socks[i] = socket(AF_INET, SOCK_STREAM, 0);
@@ -86,14 +88,22 @@ int main(int argc, char *argv[]) {
             free(socks);
             return -1;
         }
-    }
 
-    char msg[] = "test message 0!\n";
-
-    for (i = 0; i < nsocks - 1; i++) {
-        write(socks[i], msg, sizeof(msg) - 1);
+        if (i == nsocks - 1) {
+            continue;
+        }
+        for (int j = 0; j < sizeof(msg) - 1; j++) {
+            write(socks[i], &msg[j], 1);
+            write(STDOUT_FILENO, &msg[j], 1);
+        }
         msg[13]++;
+        struct timespec dt = {
+            .tv_sec = 0,
+            .tv_nsec = 400000000
+        };
+        nanosleep(&dt, NULL);
     }
+
     write(socks[nsocks - 1], "exit", 4);
 
     struct timespec dt = {
@@ -102,7 +112,7 @@ int main(int argc, char *argv[]) {
     };
     nanosleep(&dt, NULL);
 
-    for (i = 0; i < nsocks; i++) {
+    for (i = nsocks - 1; i >= 0; i--) {
         close(socks[i]);
     }
 

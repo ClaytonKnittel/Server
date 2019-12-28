@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "client.h"
+#include "server.h"
 #include "vprint.h"
 
 int accept_client(struct client *client, int sockfd, int flags) {
@@ -42,6 +43,7 @@ ssize_t receive_bytes_n(struct client *client, size_t max) {
 
 int close_client(struct client *client) {
     dmsg_free(&client->log);
-    return close(client->connfd);
+    close(client->connfd);
+    return 0;
 }
 
