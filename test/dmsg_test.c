@@ -69,14 +69,11 @@ int main() {
     // test invalid numbers as initial node size
     // not square
     assert_neq(dmsg_init2(&list, 3), 0);
-    dmsg_free(&list);
     // zero not allowed
     assert_neq(dmsg_init2(&list, 0), 0);
-    dmsg_free(&list);
     // not square
     for (i = 17; i < 32; i++) {
         assert_neq(dmsg_init2(&list, i), 0);
-        dmsg_free(&list);
     }
 
     // test writing

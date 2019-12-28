@@ -24,6 +24,10 @@ void _assert_neq(int actual, int expect, const char msg[], int linenum) {
 
 void silence_stdout() {
     int fd = open("/dev/null", O_WRONLY);
+    if (fd == -1) {
+        printf("Unable to silence stdout!\n");
+        return;
+    }
     dup2(fd, STDOUT_FILENO);
 }
 

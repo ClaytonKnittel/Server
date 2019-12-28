@@ -172,7 +172,7 @@ static int connect_server(struct server *server) {
 #ifdef EPOLLEXCLUSIVE
         .events = EPOLLIN | EPOLLEXCLUSIVE,
 #else
-        .events = EPOLLIN | EPOLLONESHOT,
+        .events = EPOLLIN | EPOLLET | EPOLLONESHOT,
 #endif
         // safe as long as the rest of data is never accessed, which it
         // shouldn't be for the sockfd
@@ -225,17 +225,13 @@ static int accept_connection(struct server *server) {
     }
 #elif __linux__
     struct epoll_event event = {
-#ifdef EPOLLEXCLUSIVE
-        .events = EPOLLIN | EPOLLRDHUP | EPOLLEXCLUSIVE,
-#else
         .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
-#endif
         .data.ptr = client
     };
     epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event);
 #ifndef EPOLLEXCLUSIVE
     struct epoll_event listen_ev = {
-        .events = EPOLLIN | EPOLLONESHOT,
+        .events = EPOLLIN | EPOLLET | EPOLLONESHOT,
         .data.ptr = ((char*) &server->sockfd)
             - offsetof(epoll_data_ptr_t, connfd)
     };
@@ -250,7 +246,7 @@ static int accept_connection(struct server *server) {
 static int read_from(struct server *server, struct client *client, int thread) {
     vprintf("Thread %d reading...\n", thread);
 
-    receive_bytes_n(client, 4);
+    receive_bytes_n(client, 64);
 #ifdef __APPLE__
     struct kevent event;
     EV_SET(&event, client->connfd, EVFILT_READ,
@@ -261,13 +257,11 @@ static int read_from(struct server *server, struct client *client, int thread) {
                 strerror(errno));
     }
 #elif __linux__
-#ifndef EPOLLEXCLUSIVE
     struct epoll_event read_ev = {
         .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
         .data.ptr = client
     };
     epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd, &read_ev);
-#endif
 #endif
     return 0;
 }
