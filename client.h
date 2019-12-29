@@ -5,12 +5,19 @@
 #include <sys/socket.h>
 
 #include "dmsg.h"
+#include "http.h"
 
 struct client {
     LIST_ENTRY(client) list_entry;
 
+    struct http http;
+
     // file descriptor returned by accept syscall
     int connfd;
+
+    // set to 1 while the client is alive, can be set to 0 to indicate that
+    // the client should be disconnected
+    int keep_alive;
 
     // sockaddr struct associated with server
     struct sockaddr sa;

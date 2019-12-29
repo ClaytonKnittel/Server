@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <regex.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -20,7 +21,69 @@
 
 
 
-// ^(OPTIONS|GET|POST) (?:([^\s\?]+)(?:\?([^\s\?]*))?) (HTTP\/1.0|HTTP\/1.1)$
+static const char * const msgs[] = {
+    "000 None",
+    "100 Continue",
+    "101 Switching Protocols",
+    "200 OK",
+    "201 Created",
+    "202 Accepted",
+    "203 Non-Authoritative Information",
+    "204 No Content",
+    "205 Reset Content",
+    "206 Partial Content",
+    "300 Multiple Choices",
+    "301 Moved Permanently",
+    "302 Found",
+    "303 See Other",
+    "304 Not Modified",
+    "305 Use Proxy",
+    "307 Temporary Redirect",
+    "400 Bad Request",
+    "401 Unauthorized",
+    "402 Payment Required",
+    "403 Forbidden",
+    "404 Not Found",
+    "405 Method Not Allowed",
+    "406 Not Acceptable",
+    "407 Proxy Authentication Required",
+    "408 Request Time-Out",
+    "409 Conflict",
+    "410 Gone",
+    "411 Length Required",
+    "412 Precondition Failed",
+    "413 Request Entity Too Large",
+    "414 Request-URI Too Large",
+    "415 Unsupported Media Type",
+    "416 Requested Range Not Satisfiable",
+    "417 Expectation Failed",
+    "500 Internal Server Error",
+    "501 Not Implemented",
+    "502 Bad Gateway",
+    "503 Service Unavailable",
+    "504 Gateway Time-Out",
+    "505 HTTP Version Not Supported"
+};
+
+
+static __inline const char* get_status_str(int status) {
+    return msgs[status];
+}
+
+
+/*
+ * writes the string error code and reason phrase corresponding to the given
+ * status code
+ *
+ * the buffer must be at least 36 bytes long to fit all possible response
+ * codes and messages
+ */
+static __inline void write_status_str(int status, int fd) {
+    const char *msg = msgs[status];
+    // TODO calculate at compile time
+    int size = strlen(msg);
+    write(fd, msg, size);
+}
 
 
 #define METHOD_OPTS \
@@ -127,7 +190,7 @@ typedef struct {
     regmatch_t http_v;
 } header_match;
 
-#define HEADER "^(" METHOD_OPTS ") " URI " (HTTP\\/1.0|HTTP\\/1.1)$"
+#define HEADER "^(" METHOD_OPTS ") " URI " (HTTP\\/1.0|HTTP\\/1.1)\\r?$"
 
 
 static regex_t header;
@@ -194,6 +257,7 @@ int http_init() {
     REGCOMP(&header, HEADER);
 
 #undef REGCOMP
+    printf(HEADER "\n");
 
     return 0;
 }
@@ -217,6 +281,19 @@ static __inline void set_version(struct http *p, char http_minor) {
 static __inline char get_version(struct http *p) {
     char *b = (char*) &p->status;
     return 0x01 & *b;
+}
+
+/*
+ * sets http request method type, legal values are GET, POST, etc.
+ */
+static __inline void set_method(struct http *p, char method) {
+    char *b = (char*) &p->status;
+    *b = method | (0x0f & *b);
+}
+
+static __inline char get_method(struct http *p) {
+    char *b = (char*) &p->status;
+    return 0xf0 & *b;
 }
 
 /*
@@ -254,38 +331,73 @@ static __inline void parse_method(struct http *p, char *buf, regmatch_t match) {
     // all of the first characters are different, except for POST and PUT
     switch (buf[match.rm_so]) {
     case 'O': // OPTIONS
-        set_version(p, OPTIONS);
+        set_method(p, OPTIONS);
         break;
     case 'G':
-        set_version(p, GET);
+        set_method(p, GET);
         break;
     case 'H':
-        set_version(p, HEAD);
+        set_method(p, HEAD);
         break;
     case 'P':
-        set_version(p, (buf[match.rm_so + 1] == 'O' ? POST : PUT));
+        set_method(p, (buf[match.rm_so + 1] == 'O' ? POST : PUT));
         break;
     case 'D':
-        set_version(p, DELETE);
+        set_method(p, DELETE);
         break;
     case 'T':
-        set_version(p, TRACE);
+        set_method(p, TRACE);
         break;
     case 'C':
-        set_version(p, CONNECT);
+        set_method(p, CONNECT);
         break;
     }
+}
+
+static __inline char* parse_uri(struct http *p, char *buf, uri_match uri) {
+    regmatch_t m;
+    if (uri.abs_heir_net.rm_so != -1) {
+        // the uri given will match the file location we need to return
+        m.rm_so = uri.abs_heir_net.rm_so;
+        m.rm_eo = uri.abs_heir_net.rm_eo;
+    }
+    else if (uri.abs_heir_abs.rm_so != -1) {
+        // the uri given will match the file location we need to return
+        m.rm_so = uri.abs_heir_abs.rm_so;
+        m.rm_eo = uri.abs_heir_abs.rm_eo;
+    }
+    else if (uri.abs_opaque.rm_so != -1) {
+        // the uri given does not conform to our standards
+        return NULL;
+    }
+    else if (uri.rel_net.rm_so != -1) {
+        // the uri given will match the file location we need to return
+        m.rm_so = uri.rel_net.rm_so;
+        m.rm_eo = uri.rel_net.rm_eo;
+    }
+    else if (uri.rel_abs.rm_so != -1) {
+        // the uri given will match the file location we need to return
+        m.rm_so = uri.rel_abs.rm_so;
+        m.rm_eo = uri.rel_abs.rm_eo;
+    }
+    else if (uri.rel_rel.rm_so != -1) {
+        // the uri given will match the file location we need to return
+        m.rm_so = uri.rel_rel.rm_so;
+        m.rm_eo = uri.rel_rel.rm_eo;
+    }
+    buf[uri.abs_heir_net.rm_eo] = '\0';
+    return buf + uri.abs_heir_net.rm_so;
 }
 
 static __inline void parse_version(struct http *p, char *buf, regmatch_t match) {
     // in a match, really only the last character differentiates the version,
     // between HTTP/1.0 and HTTP/1.1
-    set_version(buf[match.rm_eo - 1] - '0');
+    set_version(p, buf[match.rm_eo - 1] - '0');
 }
 
 
 int http_parse(struct http *p, dmsg_list *req) {
-    char req_file_path[MAX_URI_SIZE];
+    char *req_path = NULL;
     char buf[MAX_LINE];
     struct {
         regmatch_t whole;
@@ -313,6 +425,14 @@ int http_parse(struct http *p, dmsg_list *req) {
                 set_status(p, bad_request);
                 return HTTP_ERR;
             }
+            req_path = parse_uri(p, buf, match.header.uri);
+            if (req_path == NULL) {
+                // the URI did not conform to our standards, i.e. we don't
+                // like opaque URI's
+                set_state(p, RESPONSE);
+                set_status(p, not_found);
+                return HTTP_ERR;
+            }
             parse_method(p, buf, match.header.method);
             parse_version(p, buf, match.header.http_v);
             state = HEADERS;
@@ -328,7 +448,8 @@ int http_parse(struct http *p, dmsg_list *req) {
     }
     set_state(p, state);
 
-    return 0;
+    // FIXME
+    return HTTP_DONE;
 }
 
 
@@ -337,6 +458,56 @@ int http_respond(struct http *p, int fd) {
         // should not call respond if not in respond state
         return HTTP_ERR;
     }
+    printf("http response!\n");
+    http_print(p);
     return 0;
+}
+
+
+
+void http_print(struct http *p) {
+    char *version, *method;
+
+    switch (get_version(p)) {
+    case HTTP_1_0:
+        version = "HTTP/1.0";
+        break;
+    case HTTP_1_1:
+        version = "HTTP/1.1";
+        break;
+    default:
+        version = NULL;
+        break;
+    }
+
+    switch (get_method(p)) {
+    case OPTIONS:
+        method = "OPTIONS";
+        break;
+    case GET:
+        method = "GET";
+        break;
+    case HEAD:
+        method = "HEAD";
+        break;
+    case POST:
+        method = "POST";
+        break;
+    case PUT:
+        method = "PUT";
+        break;
+    case DELETE:
+        method = "DELETE";
+        break;
+    case TRACE:
+        method = "TRACE";
+        break;
+    case CONNECT:
+        method = "CONNECT";
+        break;
+    }
+
+    printf("HTTP request:\nmethod: %s\nversion: %s\nresponse: %s\n",
+            method, version, get_status_str(get_status(p)));
 }
 

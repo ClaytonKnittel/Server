@@ -312,9 +312,10 @@ static int read_from(struct server *server, struct client *client, int thread) {
     int ret = receive_bytes_n(client, MAX_READ_SIZE);
     vprintf("Thread %d read %d bytes from %d\n", thread, ret, client->connfd);
 
-    if (ret == 0) {
+    if (ret == 0 || !client->keep_alive) {
         // if no data was read from the socket, then it has closed, so perform
         // memory cleanup and remove from event queue
+        // or if the client was set to no longer keep alive, kill the connection
         return disconnect(server, client, thread);
     }
     else {

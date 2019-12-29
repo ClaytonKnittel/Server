@@ -9,7 +9,7 @@ else
 	$(error Not compatible for $(UNAME) systems)
 endif
 
-CFLAGS=-c -g -Wall -O3 -std=c99 -DDEBUG $(FEAT_TEST_MACROS)
+CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG $(FEAT_TEST_MACROS)
 
 MAIN=main
 TEST_FOLDER=test
