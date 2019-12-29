@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "http.h"
+#include "match.h"
 #include "util.h"
 #include "vprint.h"
 
@@ -11,7 +12,7 @@
 // https://www.w3.org/Protocols/HTTP/1.1/rfc2616bis/draft-lafon-rfc2616bis-03.html
 
 
-#define CFLAGS 0
+#define CFLAGS REG_EXTENDED
 
 // size of buffer to hold each line from request
 // (max method size (7)) + SP + URI + SP + (max version size (8)) + LF
@@ -86,33 +87,18 @@ static __inline void write_status_str(int status, int fd) {
 }
 
 
-#define METHOD_OPTS \
-    "OPTIONS|"      \
-    "GET|"          \
-    "HEAD|"         \
-    "POST|"         \
-    "PUT|"          \
-    "DELETE|"       \
-    "TRACE|"        \
+static const char * const method_opts[] = {
+    "OPTIONS",
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "DELETE",
+    "TRACE",
     "CONNECT"
+};
 
 
-// relative group offsets in URI:
-//  group 1: absolute URI heir part net path
-//  group 2: absolute URI heir part abs path
-//  group 3: absolute URI opaque part
-//  group 4: relative URI net path
-//  group 5: relative URI abs path
-//  group 6: relative URI rel path
-
-typedef struct {
-    regmatch_t abs_heir_net;
-    regmatch_t abs_heir_abs;
-    regmatch_t abs_opaque;
-    regmatch_t rel_net;
-    regmatch_t rel_abs;
-    regmatch_t rel_rel;
-} uri_match;
 
 #define URI "(?:(?:" ABSOLUTE_URI "|" RELATIVE_URI ")(?:#" FRAGMENT ")?)"
 #define ABSOLUTE_URI "(?:" SCHEME ":(?:" HEIR_PART "|" OPAQUE_PART "))"
@@ -178,92 +164,83 @@ typedef struct {
 #define DIGIT "0-9"
 
 
+static struct patterns {
+    char_class
+        // digits '0' - '9'
+        digit,
+        // digit and 'a' - 'f' or 'A' - 'F'
+        hex,
+        // upper and lowercase letters 'a' - 'z' and 'A' - 'Z'
+        alpha,
+        // alpha and digit
+        alphanum,
+        // ;, /, ?, :, @, &, =, +, &, ","
+        reserved,
+        // alphanum and -, _, ., !, ~, *, ', (, )
+        unreserved,
+        // of the form % HEX HEX (need special treatment for this)
+        escaped,
+        // unreserved, reserved, or escaped
+        uric;
+} patterns;
 
-// group offsets:
-//  group 1: method
-//  groups 2-7: uri
-//  group 8: http version
 
-typedef struct {
-    regmatch_t method;
-    uri_match uri;
-    regmatch_t http_v;
-} header_match;
+static void init_patterns() {
+    __builtin_memset(&patterns, 0, sizeof(struct patterns));
+
+    cc_allow_num(&patterns.digit);
+
+    cc_allow_num(&patterns.hex);
+    cc_allow_range(&patterns.hex, 'A', 'F');
+    cc_allow_range(&patterns.hex, 'a', 'f');
+
+    cc_allow_alpha(&patterns.alpha);
+
+    cc_allow_alphanum(&patterns.alphanum);
+
+    cc_allow(&patterns.reserved, ';');
+    cc_allow(&patterns.reserved, '/');
+    cc_allow(&patterns.reserved, '?');
+    cc_allow(&patterns.reserved, ':');
+    cc_allow(&patterns.reserved, '@');
+    cc_allow(&patterns.reserved, '&');
+    cc_allow(&patterns.reserved, '=');
+    cc_allow(&patterns.reserved, '+');
+    cc_allow(&patterns.reserved, '$');
+    cc_allow(&patterns.reserved, ',');
+
+    cc_allow_alphanum(&patterns.unreserved);
+    cc_allow(&patterns.unreserved, '-');
+    cc_allow(&patterns.unreserved, '_');
+    cc_allow(&patterns.unreserved, '.');
+    cc_allow(&patterns.unreserved, '!');
+    cc_allow(&patterns.unreserved, '~');
+    cc_allow(&patterns.unreserved, '*');
+    cc_allow(&patterns.unreserved, '\'');
+    cc_allow(&patterns.unreserved, '(');
+    cc_allow(&patterns.unreserved, ')');
+
+    // must check that the subsequent two characters are hex
+    cc_allow(&patterns.escaped, '%');
+
+    cc_allow_from(&patterns.uric, &patterns.reserved);
+    cc_allow_from(&patterns.uric, &patterns.unreserved);
+    cc_allow_from(&patterns.uric, &patterns.escaped);
+}
+
+
 
 #define HEADER "^(" METHOD_OPTS ") " URI " (HTTP\\/1.0|HTTP\\/1.1)\\r?$"
 
 
-static regex_t header;
-
-static void reg_err(int ret) {
-    printf(P_RED);
-    switch (ret) {
-    case REG_BADBR:
-        printf("Invalid use of back reference operator\n");
-        break;
-    case REG_BADPAT:
-        printf("Invalid use of pattern operators such as group or list\n");
-        break;
-    case REG_BADRPT:
-        printf("Invalid use of repitition operators such as using '*' as the"
-                "first character\n");
-        break;
-    case REG_EBRACE:
-        printf("Un-matched brace interval operators\n");
-        break;
-    case REG_EBRACK:
-        printf("Un-matched bracket list operators\n");
-        break;
-    case REG_ECOLLATE:
-        printf("Invalid collating element\n");
-        break;
-    case REG_ECTYPE:
-        printf("Unknown character class name\n");
-        break;
-    case REG_EESCAPE:
-        printf("Trailing backslash\n");
-        break;
-    case REG_EPAREN:
-        printf("Un-matched parenthesis group operators\n");
-        break;
-    case REG_ERANGE:
-        printf("Invalid use of the range operator\n");
-        break;
-    case REG_ESPACE:
-        printf("The regex routines ran out of memory\n");
-        break;
-    case REG_ESUBREG:
-        printf("Invalid back reference to a subexpression\n");
-        break;
-    case 0:
-        printf("No error\n");
-        break;
-    default:
-        printf("Bad error code %d\n", ret);
-        break;
-    }
-    printf(P_RESET);
-}
 
 int http_init() {
-    int ret;
-#define REGCOMP(reg_struct_ptr, reg_str)    \
-    if ((ret = regcomp(reg_struct_ptr, reg_str, CFLAGS)) != 0) {  \
-        fprintf(stderr, "Could not compile regex (%d) \"" reg_str "\"\n",   \
-                ret);   \
-        reg_err(ret);   \
-        return 1;   \
-    }
-    REGCOMP(&header, HEADER);
-
-#undef REGCOMP
-    printf(HEADER "\n");
+    init_patterns();
 
     return 0;
 }
 
 void http_exit() {
-    regfree(&header);
 }
 
 
@@ -327,36 +304,50 @@ static __inline char get_status(struct http *p) {
 
 
 
-static __inline void parse_method(struct http *p, char *buf, regmatch_t match) {
+/*
+ * parse method out of string and update state variable of the http struct
+ *
+ * returns 0 on success and -1 on failure
+ */
+static __inline int parse_method(struct http *p, char *method) {
     // all of the first characters are different, except for POST and PUT
-    switch (buf[match.rm_so]) {
-    case 'O': // OPTIONS
-        set_method(p, OPTIONS);
+    int idx;
+    switch (method[0]) {
+    case 'O':
+        idx = OPTIONS;
         break;
     case 'G':
-        set_method(p, GET);
+        idx = GET;
         break;
     case 'H':
-        set_method(p, HEAD);
+        idx = HEAD;
         break;
     case 'P':
-        set_method(p, (buf[match.rm_so + 1] == 'O' ? POST : PUT));
+        idx = method[1] == 'O' ? POST : PUT;
         break;
     case 'D':
-        set_method(p, DELETE);
+        idx = DELETE;
         break;
     case 'T':
-        set_method(p, TRACE);
+        idx = TRACE;
         break;
     case 'C':
-        set_method(p, CONNECT);
+        idx = CONNECT;
         break;
+    default:
+        return -1;
     }
+    // need to right shift by 4 because they occupy the upper 4
+    // bits of a char
+    if (strcmp(method, method_opts[idx >> 4]) != 0) {
+        return -1;
+    }
+    set_method(p, idx);
+    return 0;
 }
 
-static __inline char* parse_uri(struct http *p, char *buf, uri_match uri) {
-    regmatch_t m;
-    if (uri.abs_heir_net.rm_so != -1) {
+static __inline char* parse_uri(struct http *p, char *buf) {
+    /*if (uri.abs_heir_net.rm_so != -1) {
         // the uri given will match the file location we need to return
         m.rm_so = uri.abs_heir_net.rm_so;
         m.rm_eo = uri.abs_heir_net.rm_eo;
@@ -385,26 +376,32 @@ static __inline char* parse_uri(struct http *p, char *buf, uri_match uri) {
         m.rm_so = uri.rel_rel.rm_so;
         m.rm_eo = uri.rel_rel.rm_eo;
     }
-    buf[uri.abs_heir_net.rm_eo] = '\0';
-    return buf + uri.abs_heir_net.rm_so;
+    buf[uri.abs_heir_net.rm_eo] = '\0';*/
+    //return buf + uri.abs_heir_net.rm_so;
+    return buf;
 }
 
-static __inline void parse_version(struct http *p, char *buf, regmatch_t match) {
+/*
+ * parse HTTP version out of string, returning 0 on success and -1 on failure
+ */
+static __inline int parse_version(struct http *p, char *buf) {
     // in a match, really only the last character differentiates the version,
     // between HTTP/1.0 and HTTP/1.1
-    set_version(p, buf[match.rm_eo - 1] - '0');
+    if (strncmp(buf, "HTTP/1.", 7) != 0) {
+        return -1;
+    }
+    if (buf[7] != '0' && buf[7] != '1') {
+        return -1;
+    }
+    set_version(p, buf[7] - '0');
+    return 0;
 }
 
 
 int http_parse(struct http *p, dmsg_list *req) {
     char *req_path = NULL;
-    char buf[MAX_LINE];
-    struct {
-        regmatch_t whole;
-        union {
-            header_match header;
-        };
-    } match;
+    char *method, *version;
+    char *tmp, buf[MAX_LINE];
 
     char state = get_state(p);
 
@@ -417,24 +414,48 @@ int http_parse(struct http *p, dmsg_list *req) {
                set_status(p, req_uri_too_large);
                return HTTP_ERR;
             }
-            if (regexec(&header, buf, 1 + sizeof(header_match)
-                        / sizeof(regmatch_t), (regmatch_t *) &match, 0)
-                    == REG_NOMATCH) {
+
+#define TEST_BAD_FORMAT \
+            if (buf == NULL) { \
+                set_state(p, RESPONSE); \
+                set_status(p, bad_request); \
+                return HTTP_ERR; \
+            }
+
+            tmp = buf;
+            method = tmp;
+
+            tmp = strchr(method, ' ');
+            TEST_BAD_FORMAT;
+            *tmp = '\0';
+            req_path = tmp + 1;
+
+            tmp = strchr(req_path, ' ');
+            TEST_BAD_FORMAT;
+            *tmp = '\0';
+            version = tmp + 1;
+
+#undef TEST_BAD_FORMAT
+
+            if (parse_method(p, method) != 0) {
+                // bad request method
+                set_state(p, RESPONSE);
+                set_status(p, bad_request);
+                return HTTP_ERR;
+            }
+            req_path = parse_uri(p, req_path);
+            if (req_path == NULL) {
+                // the URI was not properly formatted
+                set_state(p, RESPONSE);
+                set_status(p, not_found);
+                return HTTP_ERR;
+            }
+            if (parse_version(p, version) != 0) {
                 // requets line not formatted properly
                 set_state(p, RESPONSE);
                 set_status(p, bad_request);
                 return HTTP_ERR;
             }
-            req_path = parse_uri(p, buf, match.header.uri);
-            if (req_path == NULL) {
-                // the URI did not conform to our standards, i.e. we don't
-                // like opaque URI's
-                set_state(p, RESPONSE);
-                set_status(p, not_found);
-                return HTTP_ERR;
-            }
-            parse_method(p, buf, match.header.method);
-            parse_version(p, buf, match.header.http_v);
             state = HEADERS;
             break;
         case HEADERS:
@@ -455,6 +476,8 @@ int http_parse(struct http *p, dmsg_list *req) {
 
 int http_respond(struct http *p, int fd) {
     if (get_state(p) != RESPONSE) {
+        printf("http response err!\n");
+        http_print(p);
         // should not call respond if not in respond state
         return HTTP_ERR;
     }
