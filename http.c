@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "http.h"
+#include "util.h"
 
 // terminology from:
 // https://www.w3.org/Protocols/HTTP/1.1/rfc2616bis/draft-lafon-rfc2616bis-03.html
@@ -22,30 +23,41 @@
 #define HEADER "^(" METHOD_OPTS ") " URI " ()"
 
 
+// relative group offsets in URI:
+//  group 1: absolute URI heir part net path
+//  group 2: absolute URI heir part abs path
+//  group 3: absolute URI opaque part
+//  group 4: relative URI net path
+//  group 5: relative URI abs path
+//  group 6: relative URI rel path
+
 #define URI "(?:(?:" ABSOLUTE_URI "|" RELATIVE_URI ")(?:#" FRAGMENT ")?)"
 #define ABSOLUTE_URI "(?:" SCHEME ":(?:" HEIR_PART "|" OPAQUE_PART "))"
 #define RELATIVE_URI "(?:" NET_PATH "|" ABS_PATH "|" REL_PATH ")" \
     "(?:\\?" QUERY ")?"
 
 #define HEIR_PART "(?:" NET_PATH "|" ABS_PATH")"
-#define OPAQUE_PART "(?:" URIC_NO_SLASH URIC "*)"
+// captures
+#define OPAQUE_PART "(" URIC_NO_SLASH URIC "*)"
 
-#define URIC_NO_SLASH "[" UNRESERVED ESCAPED ";\\?:@&=\\+\\$,]"
+#define URIC_NO_SLASH "(?:[" UNRESERVED ";\\?:@&=\\+\\$,]|" ESCAPED ")"
 
 #define NET_PATH "(?:\\/\\/" AUTHORITY ABS_PATH "?)"
-#define ABS_PATH "(?:\\/" PATH_SEGMENTS ")"
-#define REL_PATH "(?:" REL_SEGMENT ABS_PATH "?)"
+// captures
+#define ABS_PATH "(\\/" PATH_SEGMENTS ")"
+#define ABS_PATH_NOCAPTURE "(?:\\/" PATH_SEGMENTS ")"
+#define REL_PATH "(" REL_SEGMENT ABS_PATH_NOCAPTURE "?)"
 
-#define REL_SEGMENT "[" UNRESERVED ESCAPED ";@&=\\+\\$,]+"
+#define REL_SEGMENT "(?:[" UNRESERVED ";@&=\\+\\$,]|" ESCAPED ")+"
 
 #define SCHEME "(?:[" ALPHA "][" ALPHA DIGIT "\\+-\\.]*)"
 
 #define AUTHORITY "(?:" SERVER "|" REG_NAME ")"
 
-#define REG_NAME "[" UNRESERVED ESCAPED "\\$,;:@&=\\+]+"
+#define REG_NAME "(?:[" UNRESERVED "\\$,;:@&=\\+]|" ESCAPED ")+"
 
 #define SERVER "(?:(?:" USERINFO "@)?" HOSTPORT ")?"
-#define USERINFO "[" UNRESERVED ESCAPED ";:&=\\+\\$,]*"
+#define USERINFO "(?:[" UNRESERVED ";:&=\\+\\$,]|" ESCAPED ")*"
 
 #define HOSTPORT "(?:" HOST "(?::" PORT ")?)"
 #define HOST "(?:" HOSTNAME "|" IPV4ADDRESS ")"
@@ -58,9 +70,9 @@
 
 #define PATH "(?:" ABS_PATH "|" OPAQUE_PART ")?"
 #define PATH_SEGMENTS "(?:" SEGMENT "(?:\\/" SEGMENT ")*)"
-#define SEGMENT "(?:[" PCHAR "]*(?:;" PARAM ")*)"
-#define PARAM "[" PCHAR "]*"
-#define PCHAR "[" UNRESERVED ESCAPED ":@&=\\+\\$,]"
+#define SEGMENT "(?:" PCHAR "*(?:;" PARAM ")*)"
+#define PARAM PCHAR "*"
+#define PCHAR "(?:[" UNRESERVED ":@&=\\+\\$,]|" ESCAPED ")"
 
 #define QUERY URIC "*"
 
@@ -72,7 +84,7 @@
 #define UNRESERVED ALPHANUM MARK
 #define MARK "-_\\.!~\\*'\\(\\)"
 
-#define ESCAPED "%%[" HEX "][" HEX "]"
+#define ESCAPED "(?:%%[" HEX "][" HEX "])"
 #define HEX DIGIT "A-Fa-f"
 
 #define ALPHANUM ALPHA DIGIT
@@ -106,7 +118,10 @@ int http_init() {
 
 #undef REGCOMP
 
-    printf(URI "\n");
+#define DO(macro) \
+    printf(macro "\n\n");
+
+    printf("uri:\n" URI "\n\n");
     exit(0);
     return 0;
 }
