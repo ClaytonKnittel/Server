@@ -120,7 +120,9 @@ int init(struct server *server, int argc, char *argv[]) {
     signal(SIGUSR2, close_handler);
 
     // initialize const globals in http processor
-    http_init();
+    if (http_init() != 0) {
+        return 1;
+    }
 
     return 0;
 }
