@@ -85,7 +85,7 @@ int init_server3(struct server *server, int port, int backlog) {
                   epoll_create1(0);
 #endif
     if (server->qfd < 0) {
-        printf("Unable to initialize " QUEUE_T ", reason: %s\n",
+        fprintf(stderr, "Unable to initialize " QUEUE_T ", reason: %s\n",
                 strerror(errno));
         ret = -1;
     }
@@ -93,7 +93,7 @@ int init_server3(struct server *server, int port, int backlog) {
     server->running = 1;
 
     if (pipe(server->term_pipe) == -1) {
-        printf("Unable to initialize pipe, reason: %s\n",
+        fprintf(stderr, "Unable to initialize pipe, reason: %s\n",
                 strerror(errno));
         ret = -1;
     }
@@ -144,7 +144,7 @@ void close_server(struct server *server) {
 
     LIST_FOREACH(client, &server->client_list, list_entry) {
         if (close_client(client) == 0) {
-            printf("freed %d\n", client->connfd);
+            vprintf("freed %d\n", client->connfd);
             // only free client if close succeeded
             free(client);
         }
@@ -310,7 +310,7 @@ static int disconnect(struct server *server, struct client *client, int thread) 
 
 static int read_from(struct server *server, struct client *client, int thread) {
     int ret = receive_bytes_n(client, MAX_READ_SIZE);
-    printf("Thread %d read %d bytes from %d\n", thread, ret, client->connfd);
+    vprintf("Thread %d read %d bytes from %d\n", thread, ret, client->connfd);
 
     if (ret == 0) {
         // if no data was read from the socket, then it has closed, so perform
@@ -363,7 +363,8 @@ static void* _run(void *server_arg) {
                     epoll_wait(server->qfd, &event, 1, -1)
 #endif
                     ) == -1) {
-            printf(QUEUE_T " call failed, reason: %s\n", strerror(errno));
+            fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
+                    strerror(errno));
         }
 #ifdef __APPLE__
         fd = event.ident;

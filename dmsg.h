@@ -207,7 +207,7 @@ int dmsg_seek(dmsg_list*, ssize_t offset, int whence);
  *
  * if no newline character is found before EOF is reached, then errno is set
  * to DMSG_NO_NEWLINE, which means that the entire line had not been read into
- * the dmsg_list yet
+ * the dmsg_list yet, and 0 is returned
  *
  * if no newline character is found before the buffer is filled, then
  * errno is set to DMSG_PARTIAL_READ, meaning the buffer was not large enough
@@ -215,7 +215,7 @@ int dmsg_seek(dmsg_list*, ssize_t offset, int whence);
  * for a newline character. If one is found, then as much of the line as
  * possible will have been read into the buffer, but dmsg_getline must be
  * called again to extract more of it. However, if no newline is found, then
- * errno is set to DMSG_NO_NEWLINE
+ * errno is set to DMSG_NO_NEWLINE and 0 is returned
  *
  * returns the number of bytes successfully read
  */

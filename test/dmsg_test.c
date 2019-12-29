@@ -338,6 +338,34 @@ int main() {
 
 
 #define SIZE 12
+
+        // test empty lines
+        char msg3[] = "test msg\n\ntest2\n\n";
+        for (int i = 2; i <= 8; i *= 2) {
+            assert(dmsg_init2(&list, i), 0);
+            assert(dmsg_append(&list, msg3, sizeof(msg3) - 1), 0);
+
+            v_ensure(dmsg_print(&list, STDERR_FILENO));
+
+            char buf[SIZE];
+
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 9);
+            assert(errno, 0);
+            assert(strcmp(buf, "test msg"), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 1);
+            assert(errno, 0);
+            assert(strcmp(buf, ""), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 6);
+            assert(errno, 0);
+            assert(strcmp(buf, "test2"), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 1);
+            assert(errno, 0);
+            assert(strcmp(buf, ""), 0);
+            assert(dmsg_getline(&list, buf, sizeof(buf)), 0);
+            assert(errno, DMSG_NO_NEWLINE);
+        }
+
+
         // test not ending with newline
         char msg2[] = "new message\nthris";
         for (int i = 2; i <= 8; i *= 2) {
