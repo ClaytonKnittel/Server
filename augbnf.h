@@ -103,6 +103,9 @@
 
 #include "match.h"
 
+// maximum number of lines a rule can occupy
+#define MAX_LINES_PER_RULE 16
+
 /*
  * constructs a c_pattern tree from a file containing an augbnf grammar
  *

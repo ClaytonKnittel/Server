@@ -216,6 +216,14 @@ static __inline void cc_allow_alphanum(char_class *cc) {
 }
 
 /*
+ * adds whitespace characters (horizontal tab, newline, vertical tab, form
+ * feed, and carriage return)
+ */
+static __inline void cc_allow_whitespace(char_class *cc) {
+    cc_allow_range(cc, '\t', '\r');
+}
+
+/*
  * allows every character besides the null terminator (ascii value 0)
  */
 static __inline void cc_allow_all(char_class *cc) {

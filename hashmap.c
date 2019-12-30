@@ -6,6 +6,29 @@
 #include "vprint.h"
 
 
+
+
+unsigned str_hash(void* v_str) {
+    char* str = (char*) v_str;
+    const unsigned p = 53;
+    unsigned hash = 0;
+
+    while (*str != '\0') {
+        hash = p * hash + *str;
+        str++;
+    }
+    return hash;
+}
+
+int str_cmp(void* v_str1, void* v_str2) {
+    char* str1 = (char*) v_str1;
+    char* str2 = (char*) v_str2;
+
+    for (; *str1 != '\0' && *str2 != '\0' && *str1 == *str2; str1++, str2++);
+    return *str1 == *str2;
+}
+
+
 // table size source: https://planetmath.org/goodhashtableprimes
 
 static const unsigned int sizes[] = {

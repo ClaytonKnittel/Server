@@ -53,6 +53,14 @@ typedef struct {
 } hashmap;
 
 
+// string hash function
+unsigned str_hash(void* v_str);
+
+// string cmp function
+int str_cmp(void* v_str1, void* v_str2);
+
+
+
 /*
  * initializes a hashmap, returning 0 on success and -1 on failure
  */
