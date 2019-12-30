@@ -66,6 +66,11 @@ int main() {
 
         assert(pattern_match(patt, "314-159-2653", 0, NULL), 0);
         assert(pattern_match(patt, "314.159-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt, "314-159-265", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt, "314-159-26533", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt, "314-1f9-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt, "3141243233", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt, "314-15-32653", 0, NULL), MATCH_FAIL);
     }
 
     printf(P_GREEN "All match tests passed" P_RESET "\n");

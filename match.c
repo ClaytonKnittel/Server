@@ -13,6 +13,11 @@ static __inline char* _match_token_and(struct token *token, char *buf,
     c_pattern *patt = token->patt;
     char *endptr = buf;
 
+    int captures = (token->type & TOKEN_CAPTURE) != 0;
+    // if this token captures, we need to claim a spot in the match
+    // buffer before making any recursive calls, as they may also capture
+    *n_matches += captures;
+
     for (int token_n = 0; token_n < patt->token_count; token_n++) {
         endptr = _pattern_match(patt->token[token_n], endptr, offset
                 + (int) (endptr - buf), max_n_matches, n_matches,
@@ -24,6 +29,10 @@ static __inline char* _match_token_and(struct token *token, char *buf,
             return NULL;
         }
     }
+    if (captures && init_n_matches < max_n_matches) {
+        matches[init_n_matches].so = offset;
+        matches[init_n_matches].eo = offset + (int) (endptr - buf);
+    }
     return endptr;
 }
 
@@ -34,11 +43,20 @@ static __inline char* _match_token_or(struct token *token, char *buf,
     size_t init_n_matches = *n_matches;
     c_pattern *patt = token->patt;
 
+    int captures = (token->type & TOKEN_CAPTURE) != 0;
+    // if this token captures, we need to claim a spot in the match
+    // buffer before making any recursive calls, as they may also capture
+    *n_matches += captures;
+
     for (int token_n = 0; token_n < patt->token_count; token_n++) {
         char *ret = _pattern_match(patt->token[token_n], buf, offset,
                 max_n_matches, n_matches, matches);
         if (ret != NULL) {
             // we found a match
+            if (captures && init_n_matches < max_n_matches) {
+                matches[init_n_matches].so = offset;
+                matches[init_n_matches].eo = offset + (int) (ret - buf);
+            }
             return ret;
         }
         // reset matches count in case captures were made in recursive
@@ -112,7 +130,7 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
 int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
         match_t matches[]) {
 
-    size_t capture_count;
+    size_t capture_count = 0;
     struct token token = {
         .patt = patt,
         .min = 1,
@@ -123,6 +141,9 @@ int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
             matches);
     if (ret == NULL || *ret != '\0') {
         return MATCH_FAIL;
+    }
+    if (capture_count > n_matches) {
+        return MATCH_OVERFLOW;
     }
     return 0;
 }
