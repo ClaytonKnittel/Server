@@ -346,38 +346,9 @@ static __inline int parse_method(struct http *p, char *method) {
     return 0;
 }
 
+
 static __inline char* parse_uri(struct http *p, char *buf) {
-    /*if (uri.abs_heir_net.rm_so != -1) {
-        // the uri given will match the file location we need to return
-        m.rm_so = uri.abs_heir_net.rm_so;
-        m.rm_eo = uri.abs_heir_net.rm_eo;
-    }
-    else if (uri.abs_heir_abs.rm_so != -1) {
-        // the uri given will match the file location we need to return
-        m.rm_so = uri.abs_heir_abs.rm_so;
-        m.rm_eo = uri.abs_heir_abs.rm_eo;
-    }
-    else if (uri.abs_opaque.rm_so != -1) {
-        // the uri given does not conform to our standards
-        return NULL;
-    }
-    else if (uri.rel_net.rm_so != -1) {
-        // the uri given will match the file location we need to return
-        m.rm_so = uri.rel_net.rm_so;
-        m.rm_eo = uri.rel_net.rm_eo;
-    }
-    else if (uri.rel_abs.rm_so != -1) {
-        // the uri given will match the file location we need to return
-        m.rm_so = uri.rel_abs.rm_so;
-        m.rm_eo = uri.rel_abs.rm_eo;
-    }
-    else if (uri.rel_rel.rm_so != -1) {
-        // the uri given will match the file location we need to return
-        m.rm_so = uri.rel_rel.rm_so;
-        m.rm_eo = uri.rel_rel.rm_eo;
-    }
-    buf[uri.abs_heir_net.rm_eo] = '\0';*/
-    //return buf + uri.abs_heir_net.rm_so;
+    
     return buf;
 }
 
