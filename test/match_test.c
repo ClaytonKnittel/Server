@@ -155,7 +155,7 @@ int main() {
             .patt = dom_pat,
             .min = 1,
             .max = 1,
-            .type = TOKEN_TYPE_PATTERN
+            .type = TOKEN_TYPE_PATTERN | TOKEN_CAPTURE
         };
 
         c_pattern *patt = (c_pattern*) malloc(sizeof(c_pattern)
@@ -166,9 +166,15 @@ int main() {
         patt->token[1] = &att;
         patt->token[2] = &dom_patt;
 
-        assert(pattern_match(patt, "c.j.knittel@wustl.edu", 0, NULL), 0);
-        assert(pattern_match(patt, "plknit00@umich.edu", 0, NULL), 0);
-        assert(pattern_match(patt, "c.j.knittel@wustf.edu", 0, NULL),
+        match_t match;
+
+        assert(pattern_match(patt, "c.j.knittel@wustl.edu", 1, &match), 0);
+        assert(match.so, 12);
+        assert(match.eo, 21);
+        assert(pattern_match(patt, "plknit00@umich.edu", 1, &match), 0);
+        assert(match.so, 9);
+        assert(match.eo, 18);
+        assert(pattern_match(patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
         free(patt);

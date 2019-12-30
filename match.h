@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+/*
+ * pattern matching follows augmented BNF standard
+ */
 
 // determine the type of the token
 #define TOKEN_TYPE_MASK 0x3
@@ -29,7 +32,6 @@
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
 
-// pattern matching follows augmented BNF standard
 
 // for matching single characters to a set of characters
 typedef struct {
@@ -118,24 +120,39 @@ static __inline void cc_clear(char_class *cc) {
     __builtin_memset(cc, 0, sizeof(char_class));
 }
 
+/*
+ * determines whether the given char is in the character set
+ */
 static __inline int cc_is_match(char_class *cc, char c) {
     return (cc->bitv[c >> __bitv_t_shift] & (1LU << (c & __bitv_t_mask))) != 0;
 }
 
+/*
+ * puts the given char in the character set
+ */
 static __inline void cc_allow(char_class *cc, char c) {
     cc->bitv[c >> __bitv_t_shift] |= (1LU << (c & __bitv_t_mask));
 }
 
+/*
+ * removes the given char from the character set
+ */
 static __inline void cc_disallow(char_class *cc, char c) {
     cc->bitv[c >> __bitv_t_shift] &= ~(1LU << (c & __bitv_t_mask));
 }
 
+/*
+ * adds all chars in other to cc
+ */
 static __inline void cc_allow_from(char_class *cc, char_class *other) {
     for (int i = 0; i < (sizeof(char_class) / sizeof(__bitv_t)); i++) {
         cc->bitv[i] |= other->bitv[i];
     }
 }
 
+/*
+ * adds all characters within a range of ascii values to cc
+ */
 static __inline void cc_allow_range(char_class *cc, char l, char h) {
     int start_loc = l >> __bitv_t_shift;
     int end_loc = h >> __bitv_t_shift;
@@ -154,28 +171,46 @@ static __inline void cc_allow_range(char_class *cc, char l, char h) {
     }
 }
 
+/*
+ * adds all lowercase letters to cc
+ */
 static __inline void cc_allow_lower(char_class *cc) {
     cc_allow_range(cc, 'a', 'z');
 }
 
+/*
+ * adds all upper case letters to cc
+ */
 static __inline void cc_allow_upper(char_class *cc) {
     cc_allow_range(cc, 'A', 'Z');
 }
 
+/*
+ * adds all letters (lower and upper case) to cc
+ */
 static __inline void cc_allow_alpha(char_class *cc) {
     cc_allow_upper(cc);
     cc_allow_lower(cc);
 }
 
+/*
+ * adds all digits to cc ('0' - '9')
+ */
 static __inline void cc_allow_num(char_class *cc) {
     cc_allow_range(cc, '0', '9');
 }
 
+/*
+ * adds alpha chars (lower and upper case letters) and digits
+ */
 static __inline void cc_allow_alphanum(char_class *cc) {
     cc_allow_num(cc);
     cc_allow_alpha(cc);
 }
 
+/*
+ * allows every character besides the null terminator (ascii value 0)
+ */
 static __inline void cc_allow_all(char_class *cc) {
     // do not allow '\0'
     cc_allow_range(cc, 1, NUM_CHARS - 1);
