@@ -12,7 +12,7 @@ static __inline char* _match_token_and(struct token *token, char *buf,
         match_t matches[]) {
 
     size_t init_n_matches = *n_matches;
-    c_pattern *patt = token->patt;
+    c_pattern *patt = token->node.patt;
     char *endptr = buf;
 
     for (int token_n = 0; token_n < patt->token_count; token_n++) {
@@ -34,7 +34,7 @@ static __inline char* _match_token_or(struct token *token, char *buf,
         match_t matches[]) {
 
     size_t init_n_matches = *n_matches;
-    c_pattern *patt = token->patt;
+    c_pattern *patt = token->node.patt;
 
     for (int token_n = 0; token_n < patt->token_count; token_n++) {
         char *ret = _pattern_match(patt->token[token_n], buf, offset,
@@ -63,15 +63,15 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
     char_class *cc;
     literal *lit;
 
-    int captures = (token->type & TOKEN_CAPTURE) != 0;
+    int captures = (token->flags & TOKEN_CAPTURE) != 0;
     // if this token captures, we need to claim a spot in the match
     // buffer before making any recursive calls, as they may also capture
     *n_matches += captures;
 
     switch (token_type(token)) {
-        case TOKEN_TYPE_PATTERN:
+        case TYPE_PATTERN:
             // this is a pattern
-            patt = token->patt;
+            patt = token->node.patt;
 
             while (token->max == -1 || match_count < token->max) {
                 // look for a match to this pattern
@@ -97,8 +97,8 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
                 }
             }
             break;
-        case TOKEN_TYPE_CC:
-            cc = token->cc;
+        case TYPE_CC:
+            cc = token->node.cc;
 
             // continue matching characters until we reach the max or a mismatch
             // is found
@@ -108,8 +108,8 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
                 endptr++;
             }
             break;
-        case TOKEN_TYPE_LITERAL:
-            lit = token->lit;
+        case TYPE_LITERAL:
+            lit = token->node.lit;
             size_t len = strlen(lit->lit);
 
             while ((token->max == -1 || match_count < token->max)
@@ -141,15 +141,15 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
     }
 }
 
-int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
+int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
         match_t matches[]) {
 
     size_t capture_count = 0;
     struct token token = {
-        .patt = patt,
+        .node = *patt,
         .min = 1,
         .max = 1,
-        .type = TOKEN_TYPE_PATTERN
+        .flags = 0
     };
     char* ret = _pattern_match(&token, buf, 0, n_matches, &capture_count,
             matches);

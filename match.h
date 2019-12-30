@@ -10,12 +10,13 @@
  */
 
 // determine the type of the token
-#define TOKEN_TYPE_MASK 0x3
-#define TOKEN_TYPE_CC 0
-#define TOKEN_TYPE_LITERAL 1
-#define TOKEN_TYPE_PATTERN 2
+#define TYPE_MASK 0x3
+#define TYPE_CC 0
+#define TYPE_LITERAL 1
+#define TYPE_PATTERN 2
+
 // flag set for tokens which capture
-#define TOKEN_CAPTURE 0x4
+#define TOKEN_CAPTURE 0x1
 
 #define PATTERN_MATCH_AND 0
 #define PATTERN_MATCH_OR 1
@@ -32,23 +33,49 @@
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
 
+// generic pattern node which can match to things
+typedef struct pattern_node {
+    union {
+        struct char_class *cc;
+        struct literal *lit;
+        struct c_pattern *patt;
+    };
+    // type is either:
+    //  TYPE_CC: this is a char class
+    //  TYPE_LITERAL: matches a literal string
+    //  TYPE_PATTERN: this is a pattern
+    int type;
+} pattern_t;
+
 
 // for matching single characters to a set of characters
-typedef struct {
+typedef struct char_class {
     unsigned long bitv[NUM_CHARS / (8 * sizeof(unsigned long))];
 } char_class;
 
 // for matching a string of characters exactly
-typedef struct {
+typedef struct literal {
     char *lit;
 } literal;
 
+
+
+typedef struct c_pattern {
+    // join type is one of
+    //  PATTERN_MATCH_AND: each token must be found in sequence
+    //  PATTERN_MATCH_OR: exactly one token is to be chosen, with
+    //      precedence starting from the first token
+    int join_type;
+
+    // token count is the number of tokens in this level of the pattern
+    int token_count;
+    struct token *token[0];
+} c_pattern;
+
+
+
 struct token {
-    union {
-        char_class *cc;
-        literal *lit;
-        struct c_pattern *patt;
-    };
+    pattern_t node;
 
     // quantifier determines how to match the characters
     //
@@ -64,27 +91,11 @@ struct token {
         int min, max;
     };
 
-    // type is either:
-    //  TOKEN_TYPE_CC: this is a char class
-    //  TOKEN_TYPE_LITERAL: matches a literal string
-    //  TOKEN_TYPE_PATTERN: this is a pattern
-    // and can contain the flags
-    //  TOKEN_CAPTURE
-    int type;
+    // can either be TOKEN_CAPTURE or not
+    int flags;
+
 };
 
-
-typedef struct c_pattern {
-    // join type is one of
-    //  PATTERN_MATCH_AND: each token must be found in sequence
-    //  PATTERN_MATCH_OR: exactly one token is to be chosen, with
-    //      precedence starting from the first token
-    int join_type;
-
-    // token count is the number of tokens in this level of the pattern
-    int token_count;
-    struct token *token[0];
-} c_pattern;
 
 
 typedef struct {
@@ -109,7 +120,7 @@ typedef struct {
  *  MATCH_FAIL: no match found
  *  MATCH_OVERFLOW: more capturing groups were found than n_matches
  */
-int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
+int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
         match_t matches[]);
 
 
@@ -117,7 +128,7 @@ int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
 // -------------------- pattern ops --------------------
 
 static __inline int token_type(struct token *t) {
-    return t->type & TOKEN_TYPE_MASK;
+    return t->node.type & TYPE_MASK;
 }
 
 
