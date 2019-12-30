@@ -18,7 +18,7 @@
     _assert_neq((actual), (expect), P_YELLOW "Assert:\t" P_RESET #actual, __LINE__); \
 }
 
-void _assert(int actual, int expect, const char msg[], int linenum);
-void _assert_neq(int actual, int expect, const char msg[], int linenum);
+void _assert(long actual, long expect, const char msg[], int linenum);
+void _assert_neq(long actual, long expect, const char msg[], int linenum);
 void silence_stdout();
 

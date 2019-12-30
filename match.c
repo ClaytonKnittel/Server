@@ -68,7 +68,7 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
     // buffer before making any recursive calls, as they may also capture
     *n_matches += captures;
 
-    switch (token->type & TOKEN_TYPE_MASK) {
+    switch (token_type(token)) {
         case TOKEN_TYPE_PATTERN:
             // this is a pattern
             patt = token->patt;

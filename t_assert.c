@@ -6,7 +6,7 @@
 #include "vprint.h"
 #include "t_assert.h"
 
-void _assert(int actual, int expect, const char msg[], int linenum) {
+void _assert(long actual, long expect, const char msg[], int linenum) {
     if (actual != expect) {
         fprintf(stderr, P_CYAN "Line %d: " P_RED "Failed " P_RESET "%s\n"
                 "\tGot %d\tExpect %d\n", linenum, msg, actual, expect);
@@ -14,7 +14,7 @@ void _assert(int actual, int expect, const char msg[], int linenum) {
     }
 }
 
-void _assert_neq(int actual, int expect, const char msg[], int linenum) {
+void _assert_neq(long actual, long expect, const char msg[], int linenum) {
     if (actual == expect) {
         fprintf(stderr, P_CYAN "Line %d: " P_RED "Failed " P_RESET "%s\n"
                 "\tGot %d\tExpect not %d\n", linenum, msg, actual, expect);

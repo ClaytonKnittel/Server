@@ -114,6 +114,13 @@ int pattern_match(c_pattern *patt, char *buf, size_t n_matches,
 
 
 
+// -------------------- pattern ops --------------------
+
+static __inline int token_type(struct token *t) {
+    return t->type & TOKEN_TYPE_MASK;
+}
+
+
 // -------------------- char_class ops --------------------
 
 static __inline void cc_clear(char_class *cc) {

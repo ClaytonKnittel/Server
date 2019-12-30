@@ -1,7 +1,7 @@
-
-
 /*
- * implementation of a grammar parser inspired by Augmented Backus-Naur form
+ * Grammar Parsing
+ *
+ * Implementation of a grammar parser inspired by Augmented Backus-Naur form
  * 
  * Rules:
  *
@@ -9,9 +9,24 @@
  *
  *  Rules are of the form
  *      Rule = tokens...
- *  and can be arbitrarily nested. However, a rule's definition must appear
- *  before it is used as a token anywhere else. Rule names must only be alpha
- *  characters to avoid any ambiguity
+ *  and can be arbitrarily nested. Rule names must only be alpha characters
+ *  to avoid any ambiguity. The main defining rule of a grammar is the first
+ *  rule, and any rules that are not referenced in some subtree of the first
+ *  rule are ignored.
+ *
+ *  If a rule is to take up more than one line, it must
+ *  have parenthesis cross the line boundaries, otherwise the following lines
+ *  will be ignored, i.e.
+ *
+ *      Rule0 = "a" | "b" | "c" |
+ *              "d" | "e" | "f"
+ *
+ *  would not work, but
+ *
+ *      Rule0 = ("a" | "b" | "c" |
+ *              "d" | "e" | "f")
+ *
+ *  would
  *
  *
  *  The simplest tokens are string literals, which may be a single character or
@@ -84,9 +99,21 @@
  *  two or last two tokens
  *
  *
- *
- *
- *
  */
 
+#include "match.h"
+
+/*
+ * constructs a c_pattern tree from a file containing an augbnf grammar
+ *
+ * returns a dynamically allocated c_pattern struct on success and NULL
+ * on failure
+ */
+c_pattern* bnf_parse(const char *bnf_path);
+
+/*
+ * releases memory resources allocated in the call to bnf_parse which returned
+ * this c_pattern tree
+ */
+void bnf_free(c_pattern *);
 
