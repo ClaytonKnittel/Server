@@ -7,10 +7,12 @@
 
 
 // determine the type of the token
+#define TOKEN_TYPE_MASK 0x3
 #define TOKEN_TYPE_CC 0
-#define TOKEN_TYPE_PATTERN 1
+#define TOKEN_TYPE_LITERAL 1
+#define TOKEN_TYPE_PATTERN 2
 // flag set for tokens which capture
-#define TOKEN_CAPTURE 0x2
+#define TOKEN_CAPTURE 0x4
 
 #define PATTERN_MATCH_AND 0
 #define PATTERN_MATCH_OR 1
@@ -29,14 +31,20 @@
 
 // pattern matching follows augmented BNF standard
 
-
+// for matching single characters to a set of characters
 typedef struct {
     unsigned long bitv[NUM_CHARS / (8 * sizeof(unsigned long))];
 } char_class;
 
+// for matching a string of characters exactly
+typedef struct {
+    char *lit;
+} literal;
+
 struct token {
     union {
         char_class *cc;
+        literal *lit;
         struct c_pattern *patt;
     };
 
@@ -48,6 +56,7 @@ struct token {
     //  min = 0, max = -1 (match any number)
     //  min = 1, max = -1 (match at least one)
     //  min = 1, max = 1  (match exactly one)
+    //  min = 0, max = 1  (optional)
     //
     struct {
         int min, max;
@@ -55,6 +64,7 @@ struct token {
 
     // type is either:
     //  TOKEN_TYPE_CC: this is a char class
+    //  TOKEN_TYPE_LITERAL: matches a literal string
     //  TOKEN_TYPE_PATTERN: this is a pattern
     // and can contain the flags
     //  TOKEN_CAPTURE
