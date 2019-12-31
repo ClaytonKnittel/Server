@@ -17,6 +17,10 @@
 
 #define PATT_ANONYMOUS 0x4
 
+// first 3 bits are for type and anonymous flag, use remainder of flag for
+// reference count
+#define REF_COUNT_OFF 3
+
 // flag set for tokens which capture
 #define TOKEN_CAPTURE 0x1
 
@@ -50,6 +54,7 @@ typedef struct pattern_node {
     // and may contain flags like
     //  PATT_ANONYMOUS: this pattern was not one of the named symbols
     //      during compilation of bnf
+    // and the remainder of type is used for reference counting
     int type;
 } pattern_t;
 
@@ -171,6 +176,27 @@ static __inline int patt_anonymous(pattern_t *patt) {
 
 static __inline int patt_type(pattern_t *patt) {
     return patt->type & TYPE_MASK;
+}
+
+
+// add to the reference count of pattern by amt
+static __inline void patt_ref_add(pattern_t *patt, unsigned amt) {
+    patt->type += (amt << REF_COUNT_OFF);
+}
+
+// increment reference count of pattern
+static __inline void patt_ref_inc(pattern_t *patt) {
+    patt->type += (1U << REF_COUNT_OFF);
+}
+
+// decrement reference count of pattern
+static __inline void patt_ref_dec(pattern_t *patt) {
+    patt->type -= (1U << REF_COUNT_OFF);
+}
+
+// gets the reference count of this pattern
+static __inline unsigned patt_ref_count(pattern_t *patt) {
+    return ((unsigned) patt->type) >> REF_COUNT_OFF;
 }
 
 static __inline int token_type(struct token *t) {

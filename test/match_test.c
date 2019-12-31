@@ -273,7 +273,7 @@ int main() {
             "  abd = \" ab\" ( more |  \n"
             " words  ) | \" help\"";
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
-        assert(errno, unexpected_token);
+        assert(errno, and_or_mix);
         assert((long) ret, (long) NULL);
     }
 
@@ -297,6 +297,35 @@ int main() {
         assert(pattern_match(ret, "clayton cool", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "clayton is coo", 0, NULL), MATCH_FAIL);
 
+
+        pattern_free(ret);
+
+        char bnf2[] =
+            " main = { rule1 | rule2 } \" is\" [ \" \" rule3 ]\n"
+            " rule1 = \"clayton\"\n"
+            " rule2 = \"paige\"\n"
+            " rule3 = \"a baby\"";
+
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_print(ret);
+
+        match_t match;
+
+        assert(pattern_match(ret, "clayton is", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 7);
+        assert(pattern_match(ret, "paige is", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 5);
+        assert(pattern_match(ret, "clayton is a baby", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 7);
+        assert(pattern_match(ret, "paige is a baby", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 5);
 
         pattern_free(ret);
     }

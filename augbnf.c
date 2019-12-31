@@ -230,9 +230,6 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
     literal *lit;
 
     do {
-        // must update buf in state since its value is used in the following
-        // method
-        state->buf = buf;
         ret = get_next_non_whitespace(state);
         if (ret != 0) {
             // reached EOF
@@ -415,6 +412,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 pattern_free(&token->node);
                 return unclosed_grouping;
             }
+            buf = state->buf;
         }
         else {
             // if this is not within a nested group, don't allow crossing
@@ -433,7 +431,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         if (determined_rule_grouping) {
             if (rule->join_type == PATTERN_MATCH_OR) {
                 // in an or group
-                if (*buf != '\0' && *buf != '|') {
+                if (*buf != term_on && *buf != '\0' && *buf != '|') {
                     BNF_ERR("missing '|' between tokens in an OR grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
@@ -463,13 +461,12 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         if (*buf == '|') {
             buf++;
         }
+        state->buf = buf;
 
         // insert node into list of nodes in rule
         pattern_insert(rule, token);
 
     } while (*buf != term_on);
-
-    state->buf = buf;
 
     return 0;
 }
@@ -560,6 +557,8 @@ static pattern_t* rule_parse(parse_state *state) {
         // memory cleanup will be done outside, as rule is already in rule set
         return NULL;
     }
+    // increment reference count of this rule to 1
+    patt_ref_inc(rule);
     return rule;
 }
 
@@ -606,7 +605,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
 
     if (is_processing(rule)) {
         // error, cycle detected
-        BNF_ERR_NOLINE("circular symbol references\n");
+        BNF_ERR_NOLINE("circular symbol reference\n");
         errno = circular_definition;
         return -1;
     }
@@ -618,16 +617,14 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
 
     if (patt_type(rule) != TYPE_PATTERN) {
         // only patterns can reference other symbols
-        mark_visited(rule);
         return 0;
     }
 
     mark_processing(rule);
     c_pattern *patt = rule->patt;
 
-    struct token *prev_child = NULL;
     for (struct token *child = patt->first; child != NULL;
-            prev_child = child, child = child->next) {
+            child = child->next) {
 
         if (patt_type(&child->node) == TYPE_UNRESOLVED) {
             // if this child is unresolved, check the list of rules for a
@@ -651,9 +648,20 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
 
             // now place the resolved symbol in place of the old symbol
             child->node = *res;
+            clear_processing_bits(&child->node);
+            
+            // increment the reference count of what we just linked to
+            patt_ref_inc(res);
 
             // we are now done with the unresolved node, so we can free it
             free(sym);
+        }
+        else if (patt_type(&child->node) == TYPE_PATTERN) {
+            // if this is a pattern, must make recursive calls to resolve
+            int ret = _resolve_symbols(rules, &child->node);
+            if (ret != 0) {
+                return ret;
+            }
         }
     }
 
@@ -667,7 +675,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
  * main rule is fully formed. If there are any unused symbols, a warning will
  * be printed saying so.
  *
- * On error, -1 is returned and errno is set
+ * on error, -1 is returned and errno is set
  */
 static int resolve_symbols(parse_state *state) {
 
@@ -691,6 +699,46 @@ static int resolve_symbols(parse_state *state) {
     }
     return 0;
 }
+
+
+
+
+/*
+ * helper method for consolidate
+ */
+static int _consolidate(pattern_t *rule) {
+    if (patt_type(rule) != TYPE_PATTERN) {
+        // only consolidate patterns
+        return 0;
+    }
+
+    c_pattern *patt = rule->patt;
+
+    // if a pattern has only one child, elevate the child
+    if (patt->first == patt->last) {
+        // first try consolidating this child
+        _consolidate(&patt->first->node);
+        
+        // now elevate the child and free the old pattern
+        *rule = patt->first->node;
+        free(patt);
+    }
+
+    return 0;
+}
+
+
+/*
+ * attempts to shorten the pattern tree by either merging multiple nested
+ * patterns into one larger pattern or by turning multiple ORed characters
+ * into a char_class, etc.
+ *
+ * returns 0 on success, -1 on failure
+ */
+static int consolidate(parse_state *state) {
+    return _consolidate(state->main_rule);
+}
+
 
 
 /*
@@ -724,6 +772,13 @@ static pattern_t* bnf_parse(parse_state *state) {
     if (ret != 0) {
         pattern_free(state->main_rule);
         state->main_rule = NULL;
+    }
+    else {
+        ret = consolidate(state);
+        if (ret != 0) {
+            pattern_free(state->main_rule);
+            state->main_rule = NULL;
+        }
     }
 
     hash_free(&state->rules);
@@ -778,5 +833,35 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
     return ret;
 }
 
+
+
+static void _bnf_print(pattern_t *patt) {
+    switch (patt_type(patt)) {
+        case TYPE_PATTERN:
+            printf("(");
+            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
+                _bnf_print(&t->node);
+                if (t->next != NULL) {
+                    printf((patt->patt->join_type == PATTERN_MATCH_AND)
+                            ? " " : " | ");
+                }
+            }
+            printf(")");
+            break;
+        case TYPE_CC:
+            break;
+        case TYPE_LITERAL:
+            printf("\"%s\"", patt->lit->word);
+            break;
+        case TYPE_UNRESOLVED:
+            printf("%s", patt->lit->word);
+            break;
+    }
+}
+
+void bnf_print(pattern_t *patt) {
+    _bnf_print(patt);
+    printf("\n");
+}
 
 

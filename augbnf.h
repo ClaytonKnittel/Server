@@ -138,9 +138,9 @@ pattern_t* bnf_parsef(const char *bnf_path);
  */
 pattern_t* bnf_parseb(const char *buffer, size_t buf_size);
 
+
 /*
- * releases memory resources allocated in the call to bnf_parse which returned
- * this c_pattern tree
+ * prints the pattern in bnf form
  */
-void bnf_free(pattern_t *);
+void bnf_print(pattern_t *);
 
