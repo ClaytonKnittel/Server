@@ -1,4 +1,6 @@
+#include <stdlib.h>
 #include <string.h>
+
 
 #include "match.h"
 
@@ -167,3 +169,34 @@ int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
     }
     return 0;
 }
+
+
+void pattern_free(pattern_t *patt) {
+    switch (patt_type(patt)) {
+        case TYPE_PATTERN:
+            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
+                pattern_free(&t->node);
+            }
+        case TYPE_CC:
+        case TYPE_LITERAL:
+        default:
+            free(patt);
+    }
+}
+
+
+void pattern_free_shallow(pattern_t *patt) {
+    switch (patt_type(patt)) {
+        case TYPE_PATTERN:
+            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
+                if (patt_anonymous(&t->node)) {
+                    pattern_free_shallow(&t->node);
+                }
+            }
+        case TYPE_CC:
+        case TYPE_LITERAL:
+        default:
+            free(patt);
+    }
+}
+

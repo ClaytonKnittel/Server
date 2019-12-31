@@ -15,11 +15,13 @@
 #define TYPE_LITERAL 1
 #define TYPE_PATTERN 2
 
+#define PATT_ANONYMOUS 0x4
+
 // flag set for tokens which capture
 #define TOKEN_CAPTURE 0x1
 
-#define PATTERN_MATCH_AND 0
-#define PATTERN_MATCH_OR 1
+#define PATTERN_MATCH_AND 1
+#define PATTERN_MATCH_OR 2
 
 #define MATCH_FAIL 1
 #define MATCH_OVERFLOW 2
@@ -45,6 +47,9 @@ typedef struct pattern_node {
     //  TYPE_CC: this is a char class
     //  TYPE_LITERAL: matches a literal string
     //  TYPE_PATTERN: this is a pattern
+    // and may contain flags like
+    //  PATT_ANONYMOUS: this pattern was not one of the named symbols
+    //      during compilation of bnf
     int type;
 } pattern_t;
 
@@ -144,11 +149,32 @@ static __inline void pattern_insert(c_pattern *patt, struct token *token) {
 }
 
 
+/*
+ * recursively frees all children of this pattern, and then frees what is
+ * pointed to by patt
+ */
+void pattern_free(pattern_t *patt);
+
+/*
+ * only frees anonymous symbols that are children of this pattern, but does
+ * not free named symbols associated with it (used to free unused symbols
+ * in bnf compilation)
+ */
+void pattern_free_shallow(pattern_t *patt);
+
 
 // -------------------- pattern ops --------------------
 
+static __inline int patt_anonymous(pattern_t *patt) {
+    return (patt->type & PATT_ANONYMOUS) != 0;
+}
+
+static __inline int patt_type(pattern_t *patt) {
+    return patt->type & TYPE_MASK;
+}
+
 static __inline int token_type(struct token *t) {
-    return t->node.type & TYPE_MASK;
+    return patt_type(&t->node);
 }
 
 

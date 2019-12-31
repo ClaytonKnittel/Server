@@ -38,6 +38,11 @@ int main() {
     assert(hash_delete(&map, str1), 0);
     assert((long) hash_get(&map, str1), (long) &data1);
 
+    /*void *k, *v;
+    hashmap_for_each(&map, k, v) {
+        printf("%s -> %lu\n", (char*) k, *(size_t*) v);
+    }*/
+
 #define SIZE 400
     char *bufs[SIZE];
     for (size_t i = 0; i < SIZE; i++) {

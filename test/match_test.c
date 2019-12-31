@@ -1,13 +1,16 @@
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../augbnf.h"
 #include "../t_assert.h"
 #include "../match.h"
+#include "../util.h"
 #include "../vprint.h"
 
 
 int main() {
+    //silence_stdout();
     char_class m;
 
     cc_clear(&m);
@@ -225,11 +228,81 @@ int main() {
         pattern_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
 
-        bnf_free(ret);
+        assert(pattern_match(ret, "abc", 0, NULL), 0);
+        assert(pattern_match(ret, "ac", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "acb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bac", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+
+
+        char bnf2[] =
+            "  abd = \"ca\" | (\"bad\") | \"ad\"";
+        
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert_neq((long) ret, (long) NULL);
+
+        assert(pattern_match(ret, "ca", 0, NULL), 0);
+        assert(pattern_match(ret, "ad", 0, NULL), 0);
+        assert(pattern_match(ret, "bad", 0, NULL), 0);
+        assert(pattern_match(ret, "cabadad", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "abad", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "ada", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+
+    }
+
+    // test badly formed rexeges
+    {
+        pattern_t *ret;
+        char bnf[] =
+            "  abd = \"\"";
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, empty_string);
+        assert((long) ret, (long) NULL);
+
+        char bnf2[] =
+            "  abd = \" fa";
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, open_string);
+        assert((long) ret, (long) NULL);
+
+        char bnf3[] =
+            "  abd = \" ab\" ( more |  \n"
+            " words  ) | \" help\"";
+        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
+        assert(errno, unexpected_token);
+        assert((long) ret, (long) NULL);
+    }
+
+    // test symbol resolution
+    {
+        pattern_t *ret;
+
+        char bnf[] =
+            " main = rule1 \" \" rule2 \" \" rule3\n"
+            "\n"
+            "   rule1 = \"clayton\"\n"
+            "   rule2 = \"is\"\n"
+            "   rule3 = \"cool\"\n";
+
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
+        assert(pattern_match(ret, "claytoniscool", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "clayton cool", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "clayton is coo", 0, NULL), MATCH_FAIL);
+
+
+        pattern_free(ret);
     }
 
 
-    printf(P_GREEN "All match tests passed" P_RESET "\n");
+    fprintf(stderr, P_GREEN "All match tests passed" P_RESET "\n");
     return 0;
 }
 

@@ -29,13 +29,35 @@ int str_cmp(void* v_str1, void* v_str2) {
 }
 
 
-// table size source: https://planetmath.org/goodhashtableprimes
 
-static const unsigned int sizes[] = {
-    53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317,
-    196613, 393241, 786433, 1572869, 3145739, 6291469, 12582917, 25165843,
-    50331653, 100663319, 201326611, 402653189, 805306457, 1610612741
-};
+unsigned ptr_hash(void* ptr) {
+    unsigned l = *(unsigned*) ptr;
+    unsigned h = (unsigned) (*((size_t*) ptr) >> 32);
+    return l ^ h;
+}
+
+int ptr_cmp(void* ptr1, void* ptr2) {
+    return ptr1 == ptr2;
+}
+
+
+
+struct hash_node* find_next(hashmap *map, struct hash_node* prev,
+        size_t *bucket_idx) {
+    if (prev != NULL) {
+        prev = prev->next;
+    }
+    while (prev == NULL) {
+        if (++(*bucket_idx) >= sizes[map->size_idx]) {
+            break;
+        }
+        prev = map->buckets[*bucket_idx].first;
+    }
+    return prev;
+}
+
+
+
 
 
 int hash_init(hashmap *map, unsigned (*hash_fn) (void*),

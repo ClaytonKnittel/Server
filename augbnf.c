@@ -18,7 +18,7 @@
 
 // we add an additional type of node which fits in the patter_t struct which
 // contains only a name and is to later be resolved when compiling the bnf
-#define TYPE_UNRESOLVED 0x4
+#define TYPE_UNRESOLVED 0x3
 
 // because an unresolved node is just the name of the token it points to, we
 // can use the literal structure, as it is of the same form
@@ -26,8 +26,15 @@ typedef literal unresolved;
 
 
 #define BNF_ERR(msg, ...) \
-    fprintf(stderr, P_RED "BNF compiler error" P_YELLOW " (line %lu): " \
+    vprintf(P_RED "BNF compiler error" P_YELLOW " (line %lu): " \
             P_RESET msg, state->linen, ## __VA_ARGS__)
+
+#define BNF_ERR_NOLINE(msg, ...) \
+    vprintf(P_RED "BNF compiler error: " \
+            P_RESET msg, ## __VA_ARGS__)
+
+#define BNF_WARNING(msg, ...) \
+    vprintf(P_YELLOW "BNF compiler warning: " P_RESET msg, ## __VA_ARGS__)
 
 
 
@@ -145,7 +152,11 @@ static int read_line(parse_state *state) {
         memcpy(state->segment, cur_buf, size);
         state->segment[size] = '\0';
 
-        state->buf_loc = (size_t) (next_buf - state->buffer);
+        // add 1 to skip the newline that was found
+        state->buf_loc = (size_t) (next_buf - state->buffer) + 1;
+        // if we exceeded the size of the buffer, set it to the buffer size
+        state->buf_loc = (state->buf_loc > state->buf_size) ?
+            state->buf_size : state->buf_loc;
         state->buf = state->segment;
     }
     state->linen++;
@@ -278,6 +289,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         // check for groupings
         state->buf = buf;
         if (*buf == '{') {
+            // skip over this group identifier
+            state->buf++;
             // capturing group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
             ret = token_group_parse(state, group, '}');
@@ -286,10 +299,12 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 free(token);
                 return ret;
             }
+            // skip over the terminating group identifier
+            state->buf++;
 
             token->flags |= TOKEN_CAPTURE;
             token->node.patt = group;
-            token->node.type = TYPE_PATTERN;
+            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
         }
         else if (*buf == '[') {
             if (token->min != 0 || token->max != 0) {
@@ -297,6 +312,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 free(token);
                 return overspecified_quantifier;
             }
+            // skip over this group identifier
+            state->buf++;
             // optional group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
             ret = token_group_parse(state, group, ']');
@@ -305,12 +322,16 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 free(token);
                 return ret;
             }
+            // skip over the terminating group identifier
+            state->buf++;
 
             token->max = 1;
             token->node.patt = group;
-            token->node.type = TYPE_PATTERN;
+            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
         }
         else if (*buf == '(') {
+            // skip over this group identifier
+            state->buf++;
             // plain group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
             ret = token_group_parse(state, group, ')');
@@ -319,9 +340,11 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 free(token);
                 return ret;
             }
+            // skip over the terminating group identifier
+            state->buf++;
 
             token->node.patt = group;
-            token->node.type = TYPE_PATTERN;
+            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
         }
         else if (*buf == '"') {
             // literal
@@ -354,12 +377,12 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             memcpy(lit->word, word, word_len);
 
             token->node.lit = lit;
-            token->node.type = TYPE_LITERAL;
+            token->node.type = TYPE_LITERAL | PATT_ANONYMOUS;
         }
         else {
             // check for a plain token
             char* name = buf;
-            buf = get_next_unmatching(&parsers.alpha, buf);
+            buf = get_next_unmatching(&parsers.alphanum, buf);
             if (name == buf) {
                 BNF_ERR("unexpected token \"%c\" (0x%x)\n", *buf, *buf);
                 free(token);
@@ -377,7 +400,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             token->node.lit = (unresolved*) malloc(word_len + 1);
             memcpy(token->node.lit->word, name, word_len);
             token->node.lit->word[word_len] = '\0';
-            token->node.type = TYPE_UNRESOLVED;
+            token->node.type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
         }
         buf = state->buf;
 
@@ -389,7 +412,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 BNF_ERR("EOF reached while in enclosed group (either \"()\", "
                         "\"{}\" or \"[]\")\n");
                 // only safe because node is first element of token
-                bnf_free(&token->node);
+                pattern_free(&token->node);
                 return unclosed_grouping;
             }
         }
@@ -414,7 +437,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     BNF_ERR("missing '|' between tokens in an OR grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    bnf_free(&token->node);
+                    pattern_free(&token->node);
                     return and_or_mix;
                 }
             }
@@ -425,15 +448,16 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     BNF_ERR("found '|' after tokens in an AND grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    bnf_free(&token->node);
+                    pattern_free(&token->node);
                     return and_or_mix;
                 }
             }
         }
-        else if (!determined_rule_grouping) {
+        else {
             // by default, go with AND, even if there is only one token
             rule->join_type = (*buf == '|') ? PATTERN_MATCH_OR
                 : PATTERN_MATCH_AND;
+            determined_rule_grouping = 1;
         }
         // skip over an or character if there is one
         if (*buf == '|') {
@@ -540,6 +564,135 @@ static pattern_t* rule_parse(parse_state *state) {
 }
 
 
+
+
+// place bits in join_type field of c_patterns to denote when they are
+// ancestors of the current c_pattern being resolved (PROCESSING) or
+// when they have been resolved fully already (RESOLVED). This allows
+// for detection of cycles (finding a processing node as a child of
+// some other processing node) and for faster resolution (not checking
+// all children of a c_pattern if it has been resolved once)
+#define CLEAR_MASK 0x30
+#define PROCESSING 0x10
+#define VISITED    0x20
+
+
+static void clear_processing_bits(pattern_t *rule) {
+    rule->type &= ~CLEAR_MASK;
+}
+
+static int is_processing(pattern_t *rule) {
+    return (rule->type & PROCESSING) != 0;
+}
+
+static void mark_processing(pattern_t *rule) {
+    rule->type |= PROCESSING;
+}
+
+static int is_visited(pattern_t *rule) {
+    return (rule->type & VISITED) != 0;
+}
+
+static void mark_visited(pattern_t *rule) {
+    rule->type &= ~PROCESSING;
+    rule->type |= VISITED;
+}
+
+
+/*
+ * helper method for resolve_symbols
+ */
+static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
+
+    if (is_processing(rule)) {
+        // error, cycle detected
+        BNF_ERR_NOLINE("circular symbol references\n");
+        errno = circular_definition;
+        return -1;
+    }
+    if (is_visited(rule)) {
+        // we have already visited this symbol, so its children have been
+        // resolved
+        return 0;
+    }
+
+    if (patt_type(rule) != TYPE_PATTERN) {
+        // only patterns can reference other symbols
+        mark_visited(rule);
+        return 0;
+    }
+
+    mark_processing(rule);
+    c_pattern *patt = rule->patt;
+
+    struct token *prev_child = NULL;
+    for (struct token *child = patt->first; child != NULL;
+            prev_child = child, child = child->next) {
+
+        if (patt_type(&child->node) == TYPE_UNRESOLVED) {
+            // if this child is unresolved, check the list of rules for a
+            // match
+            char *symbol = child->node.lit->word;
+            pattern_t *res = hash_get(rules, symbol);
+
+            if (res == NULL) {
+                // if not found, this is an undefined symbol
+                BNF_ERR_NOLINE("symbol \"%s\" undefined\n", symbol);
+                errno = undefined_symbol;
+                return -1;
+            }
+
+            int ret = _resolve_symbols(rules, res);
+            if (ret != 0) {
+                return ret;
+            }
+
+            unresolved *sym = child->node.lit;
+
+            // now place the resolved symbol in place of the old symbol
+            child->node = *res;
+
+            // we are now done with the unresolved node, so we can free it
+            free(sym);
+        }
+    }
+
+    mark_visited(rule);
+    return 0;
+}
+
+
+/*
+ * recursively resolve symbol names, beginning from the main rule, until the
+ * main rule is fully formed. If there are any unused symbols, a warning will
+ * be printed saying so.
+ *
+ * On error, -1 is returned and errno is set
+ */
+static int resolve_symbols(parse_state *state) {
+
+    int ret = _resolve_symbols(&state->rules, state->main_rule);
+    if (ret != 0) {
+        return ret;
+    }
+    
+    // go through and check to see if there are any unused symbols
+    void *k, *v;
+    hashmap_for_each(&state->rules, k, v) {
+        pattern_t *patt = (pattern_t*) v;
+        if (!is_visited(patt)) {
+            // unused symbol
+            BNF_WARNING("unused symbol %s\n", (char*) k);
+            pattern_free_shallow(patt);
+        }
+        else {
+            clear_processing_bits(patt);
+        }
+    }
+    return 0;
+}
+
+
 /*
  * initializes hashmap and then propagates calls to rule_parse
  */
@@ -565,6 +718,13 @@ static pattern_t* bnf_parse(parse_state *state) {
     }
     // successfully parsed everything
     errno = 0;
+
+    // try to recursively resolve all symbols
+    int ret = resolve_symbols(state);
+    if (ret != 0) {
+        pattern_free(state->main_rule);
+        state->main_rule = NULL;
+    }
 
     hash_free(&state->rules);
     return state->main_rule;
@@ -619,16 +779,4 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
 }
 
 
-void bnf_free(pattern_t *patt) {
-    switch (patt->type) {
-        case TYPE_PATTERN:
-            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
-                bnf_free(&t->node);
-            }
-        case TYPE_CC:
-        case TYPE_LITERAL:
-        case TYPE_UNRESOLVED:
-            free(patt);
-    }
-}
 

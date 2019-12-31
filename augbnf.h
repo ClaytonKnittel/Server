@@ -119,6 +119,8 @@ enum {
     open_string,
     empty_string,
     unclosed_grouping,
+    circular_definition,
+    undefined_symbol,
 };
 
 /*

@@ -12,6 +12,15 @@
 #define LOAD_FACTOR 0.75
 
 
+// table size source: https://planetmath.org/goodhashtableprimes
+
+static const unsigned int sizes[] = {
+    53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317,
+    196613, 393241, 786433, 1572869, 3145739, 6291469, 12582917, 25165843,
+    50331653, 100663319, 201326611, 402653189, 805306457, 1610612741
+};
+
+
 struct hash_node {
     // points to subsequent hash_node in the same bucket
     struct hash_node *next;
@@ -53,11 +62,43 @@ typedef struct {
 } hashmap;
 
 
-// string hash function
+// generic string hash function
 unsigned str_hash(void* v_str);
 
-// string cmp function
+// generic string cmp function
 int str_cmp(void* v_str1, void* v_str2);
+
+
+// generic pointer hash function
+unsigned ptr_hash(void* ptr);
+
+// generic pointer cmp function
+int ptr_cmp(void* ptr1, void* ptr2);
+
+
+struct hash_node* find_next(hashmap *map, struct hash_node* prev,
+        size_t *bucket_idx);
+
+
+
+struct hash_iterator {
+    hashmap *map;
+    size_t bucket_idx;
+    struct hash_node *node;
+};
+
+
+#define hashmap_for_each(hash_map, key, val) \
+    for (   struct hash_iterator __hash_it = { \
+                .map = (hash_map), \
+                .bucket_idx = 0, \
+                .node = find_next(__hash_it.map, NULL, &__hash_it.bucket_idx) \
+            }; \
+            __hash_it.node != NULL && \
+            (((key) = __hash_it.node->k) == __hash_it.node->k) && \
+            (((val) = __hash_it.node->v) == __hash_it.node->v); \
+            __hash_it.node = find_next(__hash_it.map, __hash_it.node, \
+                &__hash_it.bucket_idx))
 
 
 
