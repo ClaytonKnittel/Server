@@ -58,18 +58,35 @@ int main() {
                 .flags = 0
             };
 
-        c_pattern *pattern = (c_pattern*) malloc(sizeof(c_pattern)
-                + 5 * sizeof(struct token *));
-        pattern->join_type = PATTERN_MATCH_AND;
-        pattern->token_count = 5;
-        pattern->token[0] = &digs;
-        pattern->token[1] = &dasht;
-        pattern->token[2] = &digs;
-        pattern->token[3] = &dasht;
-        pattern->token[4] = &digs4;
-        
+        plist_node
+            node5 = {
+                .next = NULL,
+                .token = &digs4
+            },
+            node4 = {
+                .next = &node5,
+                .token = &dasht
+            },
+            node3 = {
+                .next = &node4,
+                .token = &digs
+            },
+            node2 = {
+                .next = &node3,
+                .token = &dasht
+            },
+            node1 = {
+                .next = &node2,
+                .token = &digs
+            };
+        c_pattern pattern = {
+            .join_type = PATTERN_MATCH_AND,
+            .first = &node1,
+            .last = &node5
+        };
+
         pattern_t patt = {
-            .patt = pattern,
+            .patt = &pattern,
             .type = TYPE_PATTERN
         };
 
@@ -109,13 +126,13 @@ int main() {
         assert(matches[0].eo, 12);
         assert(matches[1].so, -1);
 
-        free(pattern);
     }
 
     {
         // match emails
         char_class unres, at;
-        literal wu, um;
+        char wu[] = "wustl.edu",
+             um[] = "umich.edu";
         cc_clear(&unres);
         cc_clear(&at);
 
@@ -123,9 +140,6 @@ int main() {
         cc_disallow(&unres, '@');
 
         cc_allow(&at, '@');
-
-        wu.lit = "wustl.edu";
-        um.lit = "umich.edu";
 
         struct token
             user = {
@@ -143,45 +157,64 @@ int main() {
                 .flags = 0
             },
             wut = {
-                .node.lit = &wu,
+                .node.lit = (literal*) &wu[0],
                 .node.type = TYPE_LITERAL,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             umt = {
-                .node.lit = &um,
+                .node.lit = (literal*) &um[0],
                 .node.type = TYPE_LITERAL,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             };
 
-        c_pattern *dom_pat = (c_pattern*) malloc(sizeof(c_pattern)
-                + 2 * sizeof(struct token *));
-        dom_pat->join_type = PATTERN_MATCH_OR;
-        dom_pat->token_count = 2;
-        dom_pat->token[0] = &wut;
-        dom_pat->token[1] = &umt;
+        plist_node
+            node2 = {
+                .next = NULL,
+                .token = &umt
+            },
+            node1 = {
+                .next = &node2,
+                .token = &wut
+            };
+        c_pattern dom_pat = {
+            .join_type = PATTERN_MATCH_OR,
+            .first = &node1,
+            .last = &node2
+        };
 
         struct token dom_patt = {
-            .node.patt = dom_pat,
+            .node.patt = &dom_pat,
             .node.type = TYPE_PATTERN,
             .min = 1,
             .max = 1,
             .flags = TOKEN_CAPTURE
         };
 
-        c_pattern *patte = (c_pattern*) malloc(sizeof(c_pattern)
-                + 3 * sizeof(struct token *));
-        patte->join_type = PATTERN_MATCH_AND;
-        patte->token_count = 3;
-        patte->token[0] = &user;
-        patte->token[1] = &att;
-        patte->token[2] = &dom_patt;
+        plist_node
+            node5 = {
+                .next = NULL,
+                .token = &dom_patt
+            },
+            node4 = {
+                .next = &node5,
+                .token = &att
+            },
+            node3 = {
+                .next = &node4,
+                .token = &user
+            };
+        c_pattern patte = {
+            .join_type = PATTERN_MATCH_AND,
+            .first = &node3,
+            .last = &node5
+        };
 
         pattern_t patt = {
-            .patt = patte,
+            .patt = &patte,
             .type = TYPE_PATTERN
         };
 
@@ -196,8 +229,6 @@ int main() {
         assert(pattern_match(&patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
-        free(patte);
-        free(dom_pat);
     }
 
 

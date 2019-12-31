@@ -15,8 +15,9 @@ static __inline char* _match_token_and(struct token *token, char *buf,
     c_pattern *patt = token->node.patt;
     char *endptr = buf;
 
-    for (int token_n = 0; token_n < patt->token_count; token_n++) {
-        endptr = _pattern_match(patt->token[token_n], endptr, offset
+    for (plist_node *n = patt->first; n != NULL; n = n->next) {
+        struct token *child = n->token;
+        endptr = _pattern_match(child, endptr, offset
                 + (int) (endptr - buf), max_n_matches, n_matches,
                 matches);
         if (endptr == NULL) {
@@ -36,8 +37,9 @@ static __inline char* _match_token_or(struct token *token, char *buf,
     size_t init_n_matches = *n_matches;
     c_pattern *patt = token->node.patt;
 
-    for (int token_n = 0; token_n < patt->token_count; token_n++) {
-        char *ret = _pattern_match(patt->token[token_n], buf, offset,
+    for (plist_node *n = patt->first; n != NULL; n = n->next) {
+        struct token *child = n->token;
+        char *ret = _pattern_match(child, buf, offset,
                 max_n_matches, n_matches, matches);
         if (ret != NULL) {
             // we found a match
@@ -110,10 +112,10 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
             break;
         case TYPE_LITERAL:
             lit = token->node.lit;
-            size_t len = strlen(lit->lit);
+            size_t len = strlen(lit->word);
 
             while ((token->max == -1 || match_count < token->max)
-                    && memcmp(endptr, lit->lit, len) == 0) {
+                    && memcmp(endptr, lit->word, len) == 0) {
                 match_count++;
                 endptr += len;
             }

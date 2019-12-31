@@ -33,6 +33,12 @@
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
 
+typedef struct pattern_list_node {
+    struct pattern_list_node *next;
+    struct token *token;
+} plist_node;
+
+
 // generic pattern node which can match to things
 typedef struct pattern_node {
     union {
@@ -55,7 +61,7 @@ typedef struct char_class {
 
 // for matching a string of characters exactly
 typedef struct literal {
-    char *lit;
+    char word[0];
 } literal;
 
 
@@ -67,9 +73,11 @@ typedef struct c_pattern {
     //      precedence starting from the first token
     int join_type;
 
-    // token count is the number of tokens in this level of the pattern
-    int token_count;
-    struct token *token[0];
+    struct {
+        // singly-linked list of plist_nodes which are all of the children
+        // of this pattern
+        plist_node *first, *last;
+    };
 } c_pattern;
 
 
