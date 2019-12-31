@@ -15,8 +15,8 @@ static __inline char* _match_token_and(struct token *token, char *buf,
     c_pattern *patt = token->node.patt;
     char *endptr = buf;
 
-    for (plist_node *n = patt->first; n != NULL; n = n->next) {
-        struct token *child = n->token;
+    for (struct token *child = patt->first; child != NULL;
+            child = child->next) {
         endptr = _pattern_match(child, endptr, offset
                 + (int) (endptr - buf), max_n_matches, n_matches,
                 matches);
@@ -37,8 +37,8 @@ static __inline char* _match_token_or(struct token *token, char *buf,
     size_t init_n_matches = *n_matches;
     c_pattern *patt = token->node.patt;
 
-    for (plist_node *n = patt->first; n != NULL; n = n->next) {
-        struct token *child = n->token;
+    for (struct token *child = patt->first; child != NULL;
+            child = child->next) {
         char *ret = _pattern_match(child, buf, offset,
                 max_n_matches, n_matches, matches);
         if (ret != NULL) {

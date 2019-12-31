@@ -33,11 +33,6 @@
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
 
-typedef struct pattern_list_node {
-    struct pattern_list_node *next;
-    struct token *token;
-} plist_node;
-
 
 // generic pattern node which can match to things
 typedef struct pattern_node {
@@ -74,9 +69,9 @@ typedef struct c_pattern {
     int join_type;
 
     struct {
-        // singly-linked list of plist_nodes which are all of the children
+        // singly-linked list of tokens which are all of the children
         // of this pattern
-        plist_node *first, *last;
+        struct token *first, *last;
     };
 } c_pattern;
 
@@ -86,6 +81,9 @@ struct token {
     // node must be first member of token because of memory shortcut
     // used in augbnf.c to free tokens
     pattern_t node;
+
+    // singly-linked list of tokens in a pattern
+    struct token *next;
 
     // quantifier determines how to match the characters
     //
@@ -132,6 +130,18 @@ typedef struct {
  */
 int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
         match_t matches[]);
+
+
+static __inline void pattern_insert(c_pattern *patt, struct token *token) {
+    if (patt->first == NULL) {
+        patt->first = patt->last = token;
+    }
+    else {
+        patt->last->next = token;
+        patt->last = token;
+        token->next = NULL;
+    }
+}
 
 
 
@@ -238,10 +248,11 @@ static __inline void cc_allow_alphanum(char_class *cc) {
 
 /*
  * adds whitespace characters (horizontal tab, newline, vertical tab, form
- * feed, and carriage return)
+ * feed, carriage return, and space)
  */
 static __inline void cc_allow_whitespace(char_class *cc) {
     cc_allow_range(cc, '\t', '\r');
+    cc_allow(cc, ' ');
 }
 
 /*

@@ -37,53 +37,51 @@ int main() {
         cc_allow(&dash, '-');
 
         struct token
-            digs = {
+            dig3 = {
                 .node.cc = &num,
                 .node.type = TYPE_CC,
-                .min = 3,
-                .max = 3,
-                .flags = 0
-            },
-            digs4 = {
-                .node.cc = &num,
-                .node.type = TYPE_CC,
+                .next = NULL,
                 .min = 4,
                 .max = 4,
                 .flags = 0
             },
-            dasht = {
+            dash2 = {
                 .node.cc = &dash,
                 .node.type = TYPE_CC,
+                .next = &dig3,
                 .min = 1,
                 .max = 1,
                 .flags = 0
+            },
+            dig2 = {
+                .node.cc = &num,
+                .node.type = TYPE_CC,
+                .next = &dash2,
+                .min = 3,
+                .max = 3,
+                .flags = 0
+            },
+            dash1 = {
+                .node.cc = &dash,
+                .node.type = TYPE_CC,
+                .next = &dig2,
+                .min = 1,
+                .max = 1,
+                .flags = 0
+            },
+            dig1 = {
+                .node.cc = &num,
+                .node.type = TYPE_CC,
+                .next = &dash1,
+                .min = 3,
+                .max = 3,
+                .flags = 0
             };
 
-        plist_node
-            node5 = {
-                .next = NULL,
-                .token = &digs4
-            },
-            node4 = {
-                .next = &node5,
-                .token = &dasht
-            },
-            node3 = {
-                .next = &node4,
-                .token = &digs
-            },
-            node2 = {
-                .next = &node3,
-                .token = &dasht
-            },
-            node1 = {
-                .next = &node2,
-                .token = &digs
-            };
         c_pattern pattern = {
             .join_type = PATTERN_MATCH_AND,
-            .first = &node1,
-            .last = &node5
+            .first = &dig1,
+            .last = &dig3
         };
 
         pattern_t patt = {
@@ -102,7 +100,8 @@ int main() {
 
 
         // test capture groups on phone numbers
-        digs.flags |= TOKEN_CAPTURE;
+        dig1.flags |= TOKEN_CAPTURE;
+        dig2.flags |= TOKEN_CAPTURE;
 
         match_t matches[2];
 
@@ -119,8 +118,9 @@ int main() {
         assert(matches[1].so, 0);
         assert(matches[1].eo, 0);
 
-        digs.flags &= ~TOKEN_CAPTURE;
-        digs4.flags |= TOKEN_CAPTURE;
+        dig1.flags &= ~TOKEN_CAPTURE;
+        dig2.flags &= ~TOKEN_CAPTURE;
+        dig3.flags |= TOKEN_CAPTURE;
 
         assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
         assert(matches[0].so, 8);
@@ -143,23 +143,10 @@ int main() {
         cc_allow(&at, '@');
 
         struct token
-            user = {
-                .node.cc = &unres,
-                .node.type = TYPE_CC,
-                .min = 1,
-                .max = -1,
-                .flags = 0
-            },
-            att = {
-                .node.cc = &at,
-                .node.type = TYPE_CC,
-                .min = 1,
-                .max = 1,
-                .flags = 0
-            },
             wut = {
                 .node.lit = (literal*) &wu[0],
                 .node.type = TYPE_LITERAL,
+                .next = NULL,
                 .min = 1,
                 .max = 1,
                 .flags = 0
@@ -167,51 +154,48 @@ int main() {
             umt = {
                 .node.lit = (literal*) &um[0],
                 .node.type = TYPE_LITERAL,
+                .next = &wut,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             };
 
-        plist_node
-            node2 = {
-                .next = NULL,
-                .token = &umt
-            },
-            node1 = {
-                .next = &node2,
-                .token = &wut
-            };
         c_pattern dom_pat = {
             .join_type = PATTERN_MATCH_OR,
-            .first = &node1,
-            .last = &node2
+            .first = &umt,
+            .last = &wut
         };
 
-        struct token dom_patt = {
-            .node.patt = &dom_pat,
-            .node.type = TYPE_PATTERN,
-            .min = 1,
-            .max = 1,
-            .flags = TOKEN_CAPTURE
-        };
-
-        plist_node
-            node5 = {
+        struct token
+            dom_patt = {
+                .node.patt = &dom_pat,
+                .node.type = TYPE_PATTERN,
                 .next = NULL,
-                .token = &dom_patt
+                .min = 1,
+                .max = 1,
+                .flags = TOKEN_CAPTURE
             },
-            node4 = {
-                .next = &node5,
-                .token = &att
+            att = {
+                .node.cc = &at,
+                .node.type = TYPE_CC,
+                .next = &dom_patt,
+                .min = 1,
+                .max = 1,
+                .flags = 0
             },
-            node3 = {
-                .next = &node4,
-                .token = &user
+            user = {
+                .node.cc = &unres,
+                .node.type = TYPE_CC,
+                .next = &att,
+                .min = 1,
+                .max = -1,
+                .flags = 0
             };
+
         c_pattern patte = {
             .join_type = PATTERN_MATCH_AND,
-            .first = &node3,
-            .last = &node5
+            .first = &user,
+            .last = &dom_patt
         };
 
         pattern_t patt = {

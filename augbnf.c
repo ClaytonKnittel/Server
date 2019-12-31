@@ -25,8 +25,9 @@
 typedef literal unresolved;
 
 
-#define BNF_ERR P_RED "BNF compiler error" P_YELLOW " (line " \
-    TOSTRING(__LINE__) "): " P_RESET
+#define BNF_ERR(msg, ...) \
+    fprintf(stderr, P_RED "BNF compiler error" P_YELLOW " (line %lu): " \
+            P_RESET msg, state->linen, ## __VA_ARGS__)
 
 
 
@@ -35,6 +36,7 @@ static struct parsers {
     char_class whitespace;
     char_class alpha;
     char_class num;
+    char_class alphanum;
     char_class quote;
 } parsers;
 
@@ -46,6 +48,7 @@ static __inline void init_parsers() {
     cc_allow_whitespace(&parsers.whitespace);
     cc_allow_alpha(&parsers.alpha);
     cc_allow_num(&parsers.num);
+    cc_allow_alphanum(&parsers.alphanum);
     cc_allow(&parsers.quote, '"');
 }
 
@@ -62,11 +65,11 @@ static char* skip_whitespace(char* buf) {
 }
 
 /*
- * same as skip_whitespace, but for alpha characters (upper and lowercase
- * letters)
+ * same as skip_whitespace, but for alphanumeric characters (upper and
+ * lowercase letters and digits)
  */
-static char* skip_alpha(char* buf) {
-    while (cc_is_match(&parsers.alpha, *buf)) {
+static char* skip_alphanum(char* buf) {
+    while (cc_is_match(&parsers.alphanum, *buf)) {
         buf++;
     }
     return buf;
@@ -237,8 +240,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             buf = get_next_unmatching(&parsers.num, buf);
             if (*buf != '*') {
                 *buf = '\0';
-                fprintf(stderr, BNF_ERR "quantifier %d not proceeded by '*'\n",
-                        atoi(m));
+                BNF_ERR("quantifier %d not proceeded by '*'\n", atoi(m));
                 free(token);
                 return num_without_star;
             }
@@ -255,21 +257,19 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             }
             token->min = atoi(m);
             if (token->min == 0 && token->max == 0) {
-                fprintf(stderr, BNF_ERR "not allowed to have 0-quantity "
-                        "rule\n");
+                BNF_ERR("not allowed to have 0-quantity rule\n");
                 free(token);
                 return zero_quantifier;
             }
             if (token->max != -1 && token->min > token->max) {
-                fprintf(stderr, BNF_ERR "max cannot be greater than min in "
-                        "quantifier rule (found %d*%d)\n",
-                        token->min, token->max);
+                BNF_ERR("max cannot be greater than min in quantifier rule "
+                        "(found %d*%d)\n", token->min, token->max);
                 free(token);
                 return zero_quantifier;
             }
             buf = get_next_unmatching(&parsers.whitespace, buf);
             if (*buf == '\0') {
-                fprintf(stderr, BNF_ERR "no token following '*' quantifier\n");
+                BNF_ERR("no token following '*' quantifier\n");
                 free(token);
                 return no_token_after_quantifier;
             }
@@ -293,8 +293,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         }
         else if (*buf == '[') {
             if (token->min != 0 || token->max != 0) {
-                fprintf(stderr, BNF_ERR "not allowed to quantify optional "
-                        "group []\n");
+                BNF_ERR("not allowed to quantify optional group []\n");
                 free(token);
                 return overspecified_quantifier;
             }
@@ -327,12 +326,12 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         else if (*buf == '"') {
             // literal
             // skip first double quote char
-            char *word = buf + 1;
+            char *word = ++buf;
             // search for next double quote not immediately preceeded by a
             // backslash (between contains the whole word)
             buf = get_next_unescaped(&parsers.quote, buf);
             if (*buf == '\0') {
-                fprintf(stderr, BNF_ERR "string not terminated\n");
+                BNF_ERR("string not terminated\n");
                 free(token);
                 return open_string;
             }
@@ -346,7 +345,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // length includes the null terminator
             size_t word_len = (size_t) (buf - word);
             if (word_len == 1) {
-                fprintf(stderr, BNF_ERR "string literal cannot be empty\n");
+                BNF_ERR("string literal cannot be empty\n");
                 free(token);
                 return empty_string;
             }
@@ -362,8 +361,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             char* name = buf;
             buf = get_next_unmatching(&parsers.alpha, buf);
             if (name == buf) {
-                fprintf(stderr, BNF_ERR "unexpected token \"%c\" (0x%x)\n",
-                        *buf, *buf);
+                BNF_ERR("unexpected token \"%c\" (0x%x)\n", *buf, *buf);
                 free(token);
                 return unexpected_token;
             }
@@ -388,8 +386,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             ret = get_next_non_whitespace(state);
             if (ret != 0) {
                 // EOF reached, illegal condition
-                fprintf(stderr, BNF_ERR "EOF reached while in enclosed group "
-                        "(either \"()\", \"{}\" or \"[]\")\n");
+                BNF_ERR("EOF reached while in enclosed group (either \"()\", "
+                        "\"{}\" or \"[]\")\n");
                 // only safe because node is first element of token
                 bnf_free(&token->node);
                 return unclosed_grouping;
@@ -413,10 +411,9 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             if (rule->join_type == PATTERN_MATCH_OR) {
                 // in an or group
                 if (*buf != '\0' && *buf != '|') {
-                    fprintf(stderr, BNF_ERR "missing '|' between tokens in an "
-                            "OR grouping, if the two are to be interleaved, "
-                            "group with parenthesis the ORs and ANDs "
-                            "separately\n");
+                    BNF_ERR("missing '|' between tokens in an OR grouping, if "
+                            "the two are to be interleaved, group with "
+                            "parenthesis the ORs and ANDs separately\n");
                     bnf_free(&token->node);
                     return and_or_mix;
                 }
@@ -425,9 +422,9 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 // in an AND group, check for badly-placed '|'
                 if (*buf == '|') {
                     // found | in an AND environment
-                    fprintf(stderr, BNF_ERR "found '|' after tokens in an AND "
-                            "grouping, if the two are to be interleaved, group "
-                            "with parenthesis the ORs and ANDs separately\n");
+                    BNF_ERR("found '|' after tokens in an AND grouping, if "
+                            "the two are to be interleaved, group with "
+                            "parenthesis the ORs and ANDs separately\n");
                     bnf_free(&token->node);
                     return and_or_mix;
                 }
@@ -444,11 +441,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         }
 
         // insert node into list of nodes in rule
-        plist_node *node = (plist_node*) malloc(sizeof(plist_node));
-        rule->last->next = node;
-        rule->last = node;
-        node->next = NULL;
-        node->token = token;
+        pattern_insert(rule, token);
 
     } while (*buf != term_on);
 
@@ -487,18 +480,18 @@ static pattern_t* rule_parse(parse_state *state) {
     
     if (*buf == '=') {
         // = appeared before a name
-        fprintf(stderr, BNF_ERR "rule does not have a name\n");
+        BNF_ERR("rule does not have a name\n");
         errno = rule_without_name;
         return NULL;
     }
     name = buf;
-    buf = skip_alpha(name);
+    buf = skip_alphanum(name);
 
     if (*buf == '=') {
         *buf = '\0';
     }
     else if (*buf == '\0') {
-        fprintf(stderr, BNF_ERR "rule %s not proceeded by an \"=\"\n", buf);
+        BNF_ERR("rule %s not proceeded by an \"=\"\n", buf);
         errno = rule_without_eq;
         return NULL;
     }
@@ -507,7 +500,7 @@ static pattern_t* rule_parse(parse_state *state) {
         buf++;
         buf = skip_whitespace(buf);
         if (*buf != '=') {
-            fprintf(stderr, BNF_ERR "rule %s not proceeded by an \"=\"\n", buf);
+            BNF_ERR("rule %s not proceeded by an \"=\"\n", buf);
             errno = rule_without_eq;
             return NULL;
         }
@@ -537,7 +530,7 @@ static pattern_t* rule_parse(parse_state *state) {
     strcpy(hash_name, name);
     hash_insert(&state->rules, hash_name, rule);
 
-    ret = token_group_parse(state, rule->patt, '\n');
+    ret = token_group_parse(state, rule->patt, '\0');
     if (ret != 0) {
         errno = ret;
         // memory cleanup will be done outside, as rule is already in rule set
@@ -629,8 +622,7 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
 void bnf_free(pattern_t *patt) {
     switch (patt->type) {
         case TYPE_PATTERN:
-            for (plist_node *n = patt->patt->first; n != NULL; n = n->next) {
-                struct token *t = n->token;
+            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
                 bnf_free(&t->node);
             }
         case TYPE_CC:

@@ -9,10 +9,10 @@
  *
  *  Rules are of the form
  *      Rule = tokens...
- *  and can be arbitrarily nested. Rule names must only be alpha characters
- *  to avoid any ambiguity. The main defining rule of a grammar is the first
- *  rule, and any rules that are not referenced in some subtree of the first
- *  rule are ignored.
+ *  and can be arbitrarily nested. Rule names must only be alphanumeric
+ *  characters to avoid any ambiguity. The main defining rule of a grammar is
+ *  the first rule, and any rules that are not referenced in some subtree of
+ *  the first rule are ignored.
  *
  *  If a rule is to take up more than one line, it must
  *  have parenthesis cross the line boundaries, otherwise the following lines
@@ -102,9 +102,6 @@
  */
 
 #include "match.h"
-
-// maximum number of lines a rule can occupy
-#define MAX_LINES_PER_RULE 16
 
 
 // error codes:
