@@ -83,6 +83,8 @@ typedef struct c_pattern {
 
 
 struct token {
+    // node must be first member of token because of memory shortcut
+    // used in augbnf.c to free tokens
     pattern_t node;
 
     // quantifier determines how to match the characters

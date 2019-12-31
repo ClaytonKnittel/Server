@@ -106,17 +106,42 @@
 // maximum number of lines a rule can occupy
 #define MAX_LINES_PER_RULE 16
 
+
+// error codes:
+enum {
+    success = 0,
+    eof,
+    rule_without_name,
+    rule_without_eq,
+    num_without_star,
+    no_token_after_quantifier,
+    unexpected_token,
+    and_or_mix,
+    overspecified_quantifier,
+    zero_quantifier,
+    open_string,
+    empty_string,
+    unclosed_grouping,
+};
+
 /*
  * constructs a c_pattern tree from a file containing an augbnf grammar
  *
  * returns a dynamically allocated c_pattern struct on success and NULL
  * on failure
  */
-c_pattern* bnf_parse(const char *bnf_path);
+pattern_t* bnf_parsef(const char *bnf_path);
+
+/*
+ * similar to bnf_parsef, but uses an memory buffer rather than a file
+ *
+ * buf_size is the length of buffer in bytes
+ */
+pattern_t* bnf_parseb(const char *buffer, size_t buf_size);
 
 /*
  * releases memory resources allocated in the call to bnf_parse which returned
  * this c_pattern tree
  */
-void bnf_free(c_pattern *);
+void bnf_free(pattern_t *);
 

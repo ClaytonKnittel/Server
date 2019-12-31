@@ -279,12 +279,12 @@ static int dmsg_offset_idx(
  * returns a pointer to the memory address of the char at location idx
  * in the dmsg_list
  */
-static void* dmsg_at(dmsg_list *list, dmsg_off_t idx) {
+/*static void* dmsg_at(dmsg_list *list, dmsg_off_t idx) {
     int list_idx = dmsg_offset_idx(list->_init_node_size, idx);
     size_t len = dmsg_size(list->_init_node_size, idx);
 
     return ((char*) (list->list[list_idx].msg)) + (idx - len);
-}
+}*/
 
 
 

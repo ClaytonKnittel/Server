@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../augbnf.h"
 #include "../t_assert.h"
 #include "../match.h"
 #include "../vprint.h"
@@ -229,6 +230,18 @@ int main() {
         assert(pattern_match(&patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
+    }
+
+
+    // try compiling bnf's
+    {
+        char bnf1[] =
+            "rule1 = \"a\" \"b\" \"c\"";
+
+        pattern_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_free(ret);
     }
 
 

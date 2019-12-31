@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,25 +11,17 @@
 #include "util.h"
 
 
-enum {
-    success = 0,
-    eof,
-    rule_without_name,
-    rule_without_eq,
-    num_without_star,
-    no_token_after_quantifier,
-    unexpected_token,
-    and_or_mix,
-    overspecified_quantifier,
-    zero_quantifier,
-    open_string,
-    empty_string,
-};
+// possible sources of data
+#define PARSING_FILE 1
+#define PARSING_BUF 2
+
 
 // we add an additional type of node which fits in the patter_t struct which
 // contains only a name and is to later be resolved when compiling the bnf
 #define TYPE_UNRESOLVED 0x4
 
+// because an unresolved node is just the name of the token it points to, we
+// can use the literal structure, as it is of the same form
 typedef literal unresolved;
 
 
@@ -37,66 +30,7 @@ typedef literal unresolved;
 
 
 
-/*
-#define RESOLVED 0x1
-#define UNRESOLVED 0x2
-#define CAPTURING 0x4
-
-#define PATTERN_AND 0x0
-#define PATTERN_OR 0x1
-
-typedef struct rule_list_node {
-    // singly-linked list of rule_t objects
-    struct rule *next;
-
-    // name is NULL for anonymous tokens (i.e. ones that don't have to be
-    // resolved)
-    char *name;
-    // options:
-    //  either RESOLVED or UNRESOLVED
-    //  CAPTURING or not
-    int flags;
-
-    // quantifier for rule, the default of 0, 0 means not yet defined
-    struct {
-        int min, max;
-    };
-
-
-    // exists only for resolved nodes
-    union {
-        struct {
-            struct rule *rule;
-            // shadows the type field in pattern_t, though type can also be
-            // TYPE_RULE, to refer to the rule struct
-            int type;
-        };
-        pattern_t *patt;
-    };
-} rule_list_node;*/
-
-/*
- * each rule is intially just a name, a join type (and or or) and a linked
- * list of all rule names or rule_t objects in the pattern. Then, after symbol
- * resolution, the named rules are linked properly to their rule_t structs
- */
-/*typedef struct rule {
-
-    // types are:
-    //  PATTERN_AND
-    //  PATTERN_OR
-    int type;
-
-    // length of the linked list
-    unsigned n_children;
-    // singly linked list of rule_t objects, first and last pointers are both
-    // present for convenience
-    rule_list_node *first, *last;
-} rule_t;
-*/
-
-
-
+// static globals which hold character classes used in parsing
 static struct parsers {
     char_class whitespace;
     char_class alpha;
@@ -104,6 +38,8 @@ static struct parsers {
     char_class quote;
 } parsers;
 
+// initializes the parsers, to be called once at the beginning of a bnf_parse
+// call
 static __inline void init_parsers() {
     __builtin_memset(&parsers, 0, sizeof(struct parsers));
 
@@ -114,6 +50,10 @@ static __inline void init_parsers() {
 }
 
 
+/*
+ * skips over the whitespace pointed to by buf until a non-whitespace character
+ * is reached, upon which it returns a pointer to that location
+ */
 static char* skip_whitespace(char* buf) {
     while (cc_is_match(&parsers.whitespace, *buf)) {
         buf++;
@@ -121,6 +61,10 @@ static char* skip_whitespace(char* buf) {
     return buf;
 }
 
+/*
+ * same as skip_whitespace, but for alpha characters (upper and lowercase
+ * letters)
+ */
 static char* skip_alpha(char* buf) {
     while (cc_is_match(&parsers.alpha, *buf)) {
         buf++;
@@ -129,18 +73,101 @@ static char* skip_alpha(char* buf) {
 }
 
 
+
+/*
+ * one is created for each call to bnf_parse, this contains all information
+ * necessary to compile a bnf string
+ */
 typedef struct parse_state {
+    // a hashmap of all the symbol names to their definitions
     hashmap rules;
-    FILE *file;
+    // which line number we are on while parsing
     size_t linen;
     pattern_t *main_rule;
+
+    // the pointer share between recursive calls of where in memory we are
+    // currently parsing the bfn
+    char *buf;
+
+    // we can either be reading from an open file or from a buffer in memory
+    // either PARSING_FILE or PARSING_BUF
+    int read_from;
+    union {
+        struct {
+            FILE *file;
+            // pointer to the beginning of the memory region read into from
+            // the file, which must not be modified outside of getline for
+            // proper memory cleanup
+            char *file_buf;
+        };
+        struct {
+            // pointer to user-given memory
+            const char* buffer;
+            // pointer to malloced memory, which is copied from buffer
+            char* segment;
+            // tracks where in buffer we have read up to
+            size_t buf_loc;
+            // size of buffer in bytes
+            const size_t buf_size;
+        };
+    };
 } parse_state;
 
 
-typedef struct rule_lines {
-    char *lines[MAX_LINES_PER_RULE];
-    int n_lines;
-} rule_lines;
+static int read_line(parse_state *state) {
+    size_t line_size;
+    int ret;
+
+    if (state->read_from == PARSING_FILE) {
+        ret = getline(&state->file_buf, &line_size, state->file);
+        if (ret == -1) {
+            // EOF
+            return eof;
+        }
+        state->buf = state->file_buf;
+    }
+    else {
+        size_t search_len = state->buf_size - state->buf_loc;
+        if (search_len == 0) {
+            return eof;
+        }
+        const char* cur_buf = state->buffer + state->buf_loc;
+        const char* next_buf = memchr(cur_buf, '\n', search_len);
+        if (next_buf == NULL) {
+            // we are now at the end of the buffer
+            next_buf = cur_buf + search_len;
+        }
+        size_t size = (size_t) (next_buf - cur_buf);
+        state->segment = (char*) realloc(state->segment, size + 1);
+        memcpy(state->segment, cur_buf, size);
+        state->segment[size] = '\0';
+
+        state->buf_loc = (size_t) (next_buf - state->buffer);
+        state->buf = state->segment;
+    }
+    state->linen++;
+    return 0;
+}
+
+
+static char* get_next_unmatching(char_class*, char*);
+
+// gets next non-whitespace character, reading more lines from the file if
+// necessary
+static int get_next_non_whitespace(parse_state *state) {
+    int ret;
+
+    state->buf = get_next_unmatching(&parsers.whitespace, state->buf);
+    while (*(state->buf) == '\0') {
+        ret = read_line(state);
+        if (ret != 0) {
+            return ret;
+        }
+        state->buf = get_next_unmatching(&parsers.whitespace, state->buf);
+    }
+    return 0;
+}
+
 
 
 /*
@@ -170,37 +197,14 @@ static char* get_next_unmatching(char_class *cc, char* buf) {
     return buf;
 }
 
-// gets next non-whitespace character, reading more lines from the file if
-// necessary
-static char* get_next_non_whitespace(parse_state *state, rule_lines *lines,
-        char* buf) {
-    size_t line_size;
-    int ret;
-
-    buf = get_next_unmatching(&parsers.whitespace, buf);
-    while (*buf == '\0') {
-        ret = getline(&lines->lines[lines->n_lines], &line_size, state->file);
-        state->linen++;
-        if (ret == -1) {
-            // EOF
-            for (int i = 0; i <= lines->n_lines; i++) {
-                free(lines->lines[lines->n_lines]);
-            }
-            return NULL;
-        }
-        buf = get_next_unmatching(&parsers.whitespace, buf);
-    }
-    return buf;
-}
-
 /*
  * parse all referenced tokens and literals out of the rule, stopping only
  * when the term_on character has been reached
  */
-static int token_group_parse(parse_state *state, rule_lines *lines,
-        c_pattern *rule, char **buf_ptr, char term_on) {
+static int token_group_parse(parse_state *state, c_pattern *rule,
+        char term_on) {
 
-    char *buf = *buf_ptr;
+    char *buf = state->buf;
     int ret;
 
     // to be set when it is known whether they are using PATTERN_AND
@@ -212,14 +216,17 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
     literal *lit;
 
     do {
-        if (determined_rule_grouping && (rule->join_type == PATTERN_MATCH_OR)
-                && *buf == '|') {
-            buf++;
+        // must update buf in state since its value is used in the following
+        // method
+        state->buf = buf;
+        ret = get_next_non_whitespace(state);
+        if (ret != 0) {
+            // reached EOF
+            return ret;
         }
-        buf = get_next_non_whitespace(state, lines, buf);
-        if (buf == NULL) {
-            return eof;
-        }
+
+        // since the preceeding method modified only buf in state
+        buf = state->buf;
 
         token = (struct token*) calloc(1, sizeof(struct token));
 
@@ -232,6 +239,7 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
                 *buf = '\0';
                 fprintf(stderr, BNF_ERR "quantifier %d not proceeded by '*'\n",
                         atoi(m));
+                free(token);
                 return num_without_star;
             }
             *buf = '\0';
@@ -249,28 +257,33 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             if (token->min == 0 && token->max == 0) {
                 fprintf(stderr, BNF_ERR "not allowed to have 0-quantity "
                         "rule\n");
+                free(token);
                 return zero_quantifier;
             }
             if (token->max != -1 && token->min > token->max) {
                 fprintf(stderr, BNF_ERR "max cannot be greater than min in "
                         "quantifier rule (found %d*%d)\n",
                         token->min, token->max);
+                free(token);
                 return zero_quantifier;
             }
             buf = get_next_unmatching(&parsers.whitespace, buf);
             if (*buf == '\0') {
                 fprintf(stderr, BNF_ERR "no token following '*' quantifier\n");
+                free(token);
                 return no_token_after_quantifier;
             }
         }
 
         // check for groupings
-        *buf_ptr = buf;
+        state->buf = buf;
         if (*buf == '{') {
             // capturing group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, lines, group, buf_ptr, '}');
+            ret = token_group_parse(state, group, '}');
             if (ret != 0) {
+                free(group);
+                free(token);
                 return ret;
             }
 
@@ -282,12 +295,15 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             if (token->min != 0 || token->max != 0) {
                 fprintf(stderr, BNF_ERR "not allowed to quantify optional "
                         "group []\n");
+                free(token);
                 return overspecified_quantifier;
             }
             // optional group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, lines, group, buf_ptr, ']');
+            ret = token_group_parse(state, group, ']');
             if (ret != 0) {
+                free(group);
+                free(token);
                 return ret;
             }
 
@@ -298,8 +314,10 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
         else if (*buf == '(') {
             // plain group
             group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, lines, group, buf_ptr, ')');
+            ret = token_group_parse(state, group, ')');
             if (ret != 0) {
+                free(group);
+                free(token);
                 return ret;
             }
 
@@ -315,15 +333,21 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             buf = get_next_unescaped(&parsers.quote, buf);
             if (*buf == '\0') {
                 fprintf(stderr, BNF_ERR "string not terminated\n");
+                free(token);
                 return open_string;
             }
             *buf = '\0';
             buf++;
 
+            // update state buffer, which is assumed to hold the current
+            // position at the end of these ifs
+            state->buf = buf;
+
             // length includes the null terminator
             size_t word_len = (size_t) (buf - word);
             if (word_len == 1) {
                 fprintf(stderr, BNF_ERR "string literal cannot be empty\n");
+                free(token);
                 return empty_string;
             }
 
@@ -340,8 +364,13 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             if (name == buf) {
                 fprintf(stderr, BNF_ERR "unexpected token \"%c\" (0x%x)\n",
                         *buf, *buf);
+                free(token);
                 return unexpected_token;
             }
+
+            // update state buffer, which is assumed to hold the current
+            // position at the end of these ifs
+            state->buf = buf;
 
             // length, not including the null terminating character
             size_t word_len = (size_t) (buf - name);
@@ -352,10 +381,19 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             token->node.lit->word[word_len] = '\0';
             token->node.type = TYPE_UNRESOLVED;
         }
+        buf = state->buf;
 
         if (term_on != '\0') {
             // parenthesis, etc. allow crossing lines
-            buf = get_next_non_whitespace(state, lines, buf);
+            ret = get_next_non_whitespace(state);
+            if (ret != 0) {
+                // EOF reached, illegal condition
+                fprintf(stderr, BNF_ERR "EOF reached while in enclosed group "
+                        "(either \"()\", \"{}\" or \"[]\")\n");
+                // only safe because node is first element of token
+                bnf_free(&token->node);
+                return unclosed_grouping;
+            }
         }
         else {
             // if this is not within a nested group, don't allow crossing
@@ -379,6 +417,7 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
                             "OR grouping, if the two are to be interleaved, "
                             "group with parenthesis the ORs and ANDs "
                             "separately\n");
+                    bnf_free(&token->node);
                     return and_or_mix;
                 }
             }
@@ -389,6 +428,7 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
                     fprintf(stderr, BNF_ERR "found '|' after tokens in an AND "
                             "grouping, if the two are to be interleaved, group "
                             "with parenthesis the ORs and ANDs separately\n");
+                    bnf_free(&token->node);
                     return and_or_mix;
                 }
             }
@@ -398,6 +438,11 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
             rule->join_type = (*buf == '|') ? PATTERN_MATCH_OR
                 : PATTERN_MATCH_AND;
         }
+        // skip over an or character if there is one
+        if (*buf == '|') {
+            buf++;
+        }
+
         // insert node into list of nodes in rule
         plist_node *node = (plist_node*) malloc(sizeof(plist_node));
         rule->last->next = node;
@@ -406,6 +451,8 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
         node->token = token;
 
     } while (*buf != term_on);
+
+    state->buf = buf;
 
     return 0;
 }
@@ -417,38 +464,32 @@ static int token_group_parse(parse_state *state, rule_lines *lines,
  * file is open FILE* for cnf file
  * linen is the line number we are on in the file (for error reporting)
  *
- * 0 is returned if a rule was parsed, otherwise an error code
+ * this method returns the parsed rule on success, otherwise NULL and errno
+ * is set accordingly
  */
-static int rule_parse(parse_state *state) {
-    rule_lines lines;
-    size_t line_size = 0;
+static pattern_t* rule_parse(parse_state *state) {
     int ret;
 
-    __builtin_memset(lines.lines, 0, sizeof(lines));
-    lines.n_lines = 0;
-
-    char *buf, *name;
+    char *name;
 
     // skip empty lines
     do {
-        ret = getline(&lines.lines[0], &line_size, state->file);
-        state->linen++;
-        if (ret == -1) {
-            // EOF
-            free(lines.lines[0]);
-            return eof;
+        ret = read_line(state);
+        if (ret != 0) {
+            errno = ret;
+            return NULL;
         }
-        buf = skip_whitespace(lines.lines[0]);
-    } while (*buf == '\0');
+        state->buf = skip_whitespace(state->buf);
+    } while (*(state->buf) == '\0');
 
-    lines.n_lines++;
-
+    char *buf = state->buf;
     // buf is pointing to the beginning of the first rule
     
     if (*buf == '=') {
         // = appeared before a name
         fprintf(stderr, BNF_ERR "rule does not have a name\n");
-        return rule_without_name;
+        errno = rule_without_name;
+        return NULL;
     }
     name = buf;
     buf = skip_alpha(name);
@@ -458,7 +499,8 @@ static int rule_parse(parse_state *state) {
     }
     else if (*buf == '\0') {
         fprintf(stderr, BNF_ERR "rule %s not proceeded by an \"=\"\n", buf);
-        return rule_without_eq;
+        errno = rule_without_eq;
+        return NULL;
     }
     else {
         *buf = '\0';
@@ -466,74 +508,135 @@ static int rule_parse(parse_state *state) {
         buf = skip_whitespace(buf);
         if (*buf != '=') {
             fprintf(stderr, BNF_ERR "rule %s not proceeded by an \"=\"\n", buf);
-            return rule_without_eq;
+            errno = rule_without_eq;
+            return NULL;
         }
         buf++;
         buf = skip_whitespace(buf);
     }
 
+    state->buf = buf;
     // buf is now at the start of the tokens
-    c_pattern *rule = (c_pattern*) calloc(1, sizeof(c_pattern));
+
+    pattern_t *rule = (pattern_t*) malloc(sizeof(pattern_t));
+    if (rule == NULL) {
+        return NULL;
+    }
+    rule->patt = (c_pattern*) calloc(1, sizeof(c_pattern));
+    if (rule->patt == NULL) {
+        free(rule);
+        return NULL;
+    }
+    rule->type = TYPE_PATTERN;
 
     char* hash_name = (char*) malloc(strlen(name) + 1);
-    strcpy(hash_name, name);
-    // if no rules have been put in the state yet, then declare this rule as
-    // the main rule (i.e. the first rule in the file)
-    if (state->main_rule == NULL) {
-        // since main_rule is a pattern_t (in case in consolidation it is
-        // replaced by something simpler), we have to malloc it
-        pattern_t *main_rule = (pattern_t*) malloc(sizeof(pattern_t));
-        main_rule->patt = rule;
-        main_rule->type = TYPE_PATTERN;
-        state->main_rule = main_rule;
+    if (hash_name == NULL) {
+        free(rule->patt);
+        free(rule);
     }
+    strcpy(hash_name, name);
     hash_insert(&state->rules, hash_name, rule);
 
-    return token_group_parse(state, &lines, rule, &buf, '\n');
+    ret = token_group_parse(state, rule->patt, '\n');
+    if (ret != 0) {
+        errno = ret;
+        // memory cleanup will be done outside, as rule is already in rule set
+        return NULL;
+    }
+    return rule;
 }
 
 
-c_pattern* bnf_parse(const char *bnf_path) {
+/*
+ * initializes hashmap and then propagates calls to rule_parse
+ */
+static pattern_t* bnf_parse(parse_state *state) {
+    if (hash_init(&state->rules, &str_hash, &str_cmp) != 0) {
+        dprintf(STDERR_FILENO, "Unable to initialize hashmap\n");
+        return NULL;
+    }
+    init_parsers();
+
+    state->main_rule = (pattern_t*) malloc(sizeof(pattern_t));
+    // first parse the main rule, which is defined as the first rule
+    state->main_rule = rule_parse(state);
+    if (state->main_rule == NULL) {
+        return NULL;
+    }
+
+    // and now parse the remaining rules
+    while (rule_parse(state) != NULL);
+    if (errno != eof) {
+        // TODO memory cleanup
+        return NULL;
+    }
+    // successfully parsed everything
+    errno = 0;
+
+    hash_free(&state->rules);
+    return state->main_rule;
+}
+
+
+pattern_t* bnf_parsef(const char *bnf_path) {
     parse_state state = {
-        .file = fopen(bnf_path, "r"),
         .linen = 0,
-        .main_rule = NULL
+        .main_rule = NULL,
+        .buf = NULL,
+        .read_from = PARSING_FILE,
     };
+
+    state.file = fopen(bnf_path, "r");
 
     if (state.file == NULL) {
         dprintf(STDERR_FILENO, "Unable to open file %s\n", bnf_path);
         return NULL;
     }
 
-    if (hash_init(&state.rules, &str_hash, &str_cmp) != 0) {
-        dprintf(STDERR_FILENO, "Unable to initialize hashmap\n");
-        return NULL;
+    pattern_t *ret = bnf_parse(&state);
+
+    if (state.file_buf != NULL) {
+        free(state.file_buf);
     }
-    init_parsers();
 
-    
-
-    hash_free(&state.rules);
     fclose(state.file);
-    return NULL;
+    return ret;
 }
 
 
-void bnf_free(c_pattern *patt) {
-    for (plist_node *n = patt->first; n != NULL; n = n->next) {
-        struct token *t = n->token;
-        if (token_type(t) == TYPE_PATTERN) {
-            // if this is a pattern, then we need to recursively follow it down
-            // to free all of its children
-            bnf_free(t->node.patt);
-        }
-        else {
-            // if this is not a pattern, then it was a single, individually
-            // allocated object, which can be freed from any of the pointer
-            // types in the union
-            free(t->node.cc);
-        }
+pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
+    parse_state state = {
+        .linen = 0,
+        .main_rule = NULL,
+        .buf = NULL,
+        .read_from = PARSING_BUF,
+        .buffer = buffer,
+        .segment = NULL,
+        .buf_loc = 0,
+        .buf_size = buf_size
+    };
+
+    pattern_t *ret = bnf_parse(&state);
+
+    if (state.segment != NULL) {
+        free(state.segment);
     }
-    free(patt);
+
+    return ret;
+}
+
+
+void bnf_free(pattern_t *patt) {
+    switch (patt->type) {
+        case TYPE_PATTERN:
+            for (plist_node *n = patt->patt->first; n != NULL; n = n->next) {
+                struct token *t = n->token;
+                bnf_free(&t->node);
+            }
+        case TYPE_CC:
+        case TYPE_LITERAL:
+        case TYPE_UNRESOLVED:
+            free(patt);
+    }
 }
 
