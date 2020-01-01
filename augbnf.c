@@ -451,7 +451,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     buf += 2;
                 }
                 else if (*buf == 'x' && *(buf + 1) != '\0'
-                        && *(buf + 2) == '\'') {
+                        && *(buf + 2) != '\0' && *(buf + 3) == '\'') {
 
                     buf++;
 
@@ -861,7 +861,7 @@ static void merge_literals(struct token *first_literal, struct token *until) {
     size_t total_length = 0;
     for (struct token *t = first_literal; t != until; t = t->next) {
         literal *lit = &t->node->lit;
-        total_length += strlen(lit->word);
+        total_length += lit->length;
     }
 
     pattern_t *big_lit_p = make_literal(total_length);
@@ -872,7 +872,7 @@ static void merge_literals(struct token *first_literal, struct token *until) {
         pattern_t *patt = t->node;
         literal *lit = &patt->lit;
 
-        size_t size = strlen(lit->word);
+        size_t size = lit->length;
         memcpy(big_lit->word + total_length, lit->word, size);
         total_length += size;
 
@@ -893,6 +893,56 @@ static void merge_literals(struct token *first_literal, struct token *until) {
     first_literal->flags = 0;
 }
 
+
+/*
+ * go from first_single_char until "until", assuming all tokens in this
+ * sequence are single-character literals, and merge them into a single
+ * char_class object
+ *
+ * links the new literal struct back into the children list by resing
+ * first_literal token, so we don't have to worry about linking the predecessor
+ * to first_literal, and we just need to link first_literal to until
+ */
+static void merge_single_chars(struct token *first_single_char,
+        struct token *until) {
+    if (first_single_char->next == until) {
+        // don't merge a single character into a char_class
+        return;
+    }
+
+    pattern_t *cc_patt = make_char_class();
+    char_class *cc = &cc_patt->cc;
+
+    for (struct token *t = first_single_char; t != until; t = t->next) {
+        pattern_t *patt = t->node;
+        
+        if (patt_type(patt) == TYPE_CC) {
+            // if this is a char_class, merge all chars from it into this
+            // char_class
+            cc_allow_from(cc, &patt->cc);
+        }
+        else {
+            // otherwise, this is a single-char literal, so just add its
+            // value to the char_class
+            cc_allow(cc, patt->lit.word[0]);
+        }
+
+        patt_ref_dec(patt);
+        if (patt_ref_count(patt) == 0) {
+            free(patt);
+        }
+        // reuse first literal's token struct for the new big_lit
+        if (t != first_single_char) {
+            free(t);
+        }
+    }
+
+    first_single_char->node = cc_patt;
+    first_single_char->next = until;
+    first_single_char->min = 1;
+    first_single_char->max = 1;
+    first_single_char->flags = 0;
+}
 
 
 /*
@@ -941,11 +991,35 @@ static int _consolidate(struct token *token) {
                 first_literal = NULL;
             }
         }
+
+#undef LIT_IS_MERGEABLE
     }
     else { // PATTERN_MATCH_OR
 
+        // keep track of all contiguous single-char matchings so they can be
+        // merged into a single char_class
+        struct token *first_c = NULL;
+
+#define LIT_IS_MERGEABLE(token) \
+        ((token) != NULL \
+         && ((patt_type((token)->node) == TYPE_LITERAL \
+                 && ((token)->node->lit.length == 1)) \
+             || patt_type((token)->node) == TYPE_CC))
+
         for (struct token *child = patt->first; child != NULL;
                 child = child->next) {
+            // for merging multiple adjacent single-character matchings
+            if (first_c == NULL && LIT_IS_MERGEABLE(child)) {
+                first_c = child;
+            }
+            if (first_c != NULL && !LIT_IS_MERGEABLE(child->next)) {
+                merge_single_chars(first_c, child->next);
+                if (child->next == NULL) {
+                    // we need to update last pointer of this pattern
+                    patt->last = first_c;
+                }
+                first_c = NULL;
+            }
         }
     }
 
@@ -1132,6 +1206,13 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
             }
             break;
         case TYPE_CC:
+            printf("<");
+            for (unsigned char c = 0; c < NUM_CHARS; c++) {
+                if (cc_is_match(&patt->cc, c)) {
+                    printf("%c", c);
+                }
+            }
+            printf(">");
             break;
         case TYPE_LITERAL:
             if (patt->lit.length == 1) {

@@ -345,7 +345,7 @@ int main() {
 
         char bnf3[] =
             " hex = ('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'"
-            " | 'a' | 'b' | 'c' | 'd' | 'e' | 'f')";
+            " | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | '\\x21')";
 
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, 0);

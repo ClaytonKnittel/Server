@@ -153,11 +153,14 @@ static __inline pattern_t* make_literal(unsigned word_length) {
     return patt;
 }
 
+// forward declare for this constructor
+static __inline void cc_clear(char_class*);
 
 static __inline pattern_t* make_char_class() {
     pattern_t *patt = (pattern_t*) malloc(sizeof(char_class));
     if (patt != NULL) {
         patt->type = TYPE_CC;
+        cc_clear(&patt->cc);
     }
     return patt;
 }
