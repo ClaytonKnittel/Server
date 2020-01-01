@@ -41,65 +41,63 @@ int main() {
 
         struct token
             dig3 = {
-                .node.cc = &num,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &num,
                 .next = NULL,
                 .min = 4,
                 .max = 4,
                 .flags = 0
             },
             dash2 = {
-                .node.cc = &dash,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &dash,
                 .next = &dig3,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             dig2 = {
-                .node.cc = &num,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &num,
                 .next = &dash2,
                 .min = 3,
                 .max = 3,
                 .flags = 0
             },
             dash1 = {
-                .node.cc = &dash,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &dash,
                 .next = &dig2,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             dig1 = {
-                .node.cc = &num,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &num,
                 .next = &dash1,
                 .min = 3,
                 .max = 3,
                 .flags = 0
             };
 
-        c_pattern pattern = {
+        c_pattern patt = {
+            .type = TYPE_PATTERN,
             .join_type = PATTERN_MATCH_AND,
             .first = &dig1,
             .last = &dig3
         };
 
-        pattern_t patt = {
-            .patt = &pattern,
-            .type = TYPE_PATTERN
-        };
 
-
-        assert(pattern_match(&patt, "314-159-2653", 0, NULL), 0);
-        assert(pattern_match(&patt, "314.159-2653", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(&patt, "314-159-265", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(&patt, "314-159-26533", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(&patt, "314-1f9-2653", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(&patt, "3141243233", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(&patt, "314-15-32653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 0, NULL),
+                0);
+        assert(pattern_match((pattern_t*) &patt, "314.159-2653", 0, NULL),
+                MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "314-159-265", 0, NULL),
+                MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "314-159-26533", 0, NULL),
+                MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "314-1f9-2653", 0, NULL),
+                MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "3141243233", 0, NULL),
+                MATCH_FAIL);
+        assert(pattern_match((pattern_t*) &patt, "314-15-32653", 0, NULL),
+                MATCH_FAIL);
 
 
         // test capture groups on phone numbers
@@ -108,14 +106,16 @@ int main() {
 
         match_t matches[2];
 
-        assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
+        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 2, matches),
+                0);
         assert(matches[0].so, 0);
         assert(matches[0].eo, 3);
         assert(matches[1].so, 4);
         assert(matches[1].eo, 7);
 
         memset(matches, 0, sizeof(matches));
-        assert(pattern_match(&patt, "314-159-2653", 1, matches), MATCH_OVERFLOW);
+        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 1, matches),
+                MATCH_OVERFLOW);
         assert(matches[0].so, 0);
         assert(matches[0].eo, 3);
         assert(matches[1].so, 0);
@@ -125,7 +125,8 @@ int main() {
         dig2.flags &= ~TOKEN_CAPTURE;
         dig3.flags |= TOKEN_CAPTURE;
 
-        assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
+        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 2, matches),
+                0);
         assert(matches[0].so, 8);
         assert(matches[0].eo, 12);
         assert(matches[1].so, -1);
@@ -135,8 +136,19 @@ int main() {
     {
         // match emails
         char_class unres, at;
-        char wu[] = "wustl.edu",
-             um[] = "umich.edu";
+        struct test {
+            int type;
+            char dom[10];
+        }
+        wu = {
+            .type = TYPE_LITERAL,
+            .dom = "wustl.edu"
+        },
+        um = {
+            .type = TYPE_LITERAL,
+            .dom = "umich.edu"
+        };
+
         cc_clear(&unres);
         cc_clear(&at);
 
@@ -147,16 +159,14 @@ int main() {
 
         struct token
             wut = {
-                .node.lit = (literal*) &wu[0],
-                .node.type = TYPE_LITERAL,
+                .node = (pattern_t*) &wu,
                 .next = NULL,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             umt = {
-                .node.lit = (literal*) &um[0],
-                .node.type = TYPE_LITERAL,
+                .node = (pattern_t*) &um,
                 .next = &wut,
                 .min = 1,
                 .max = 1,
@@ -164,6 +174,7 @@ int main() {
             };
 
         c_pattern dom_pat = {
+            .type = TYPE_PATTERN,
             .join_type = PATTERN_MATCH_OR,
             .first = &umt,
             .last = &wut
@@ -171,24 +182,21 @@ int main() {
 
         struct token
             dom_patt = {
-                .node.patt = &dom_pat,
-                .node.type = TYPE_PATTERN,
+                .node = (pattern_t*) &dom_pat,
                 .next = NULL,
                 .min = 1,
                 .max = 1,
                 .flags = TOKEN_CAPTURE
             },
             att = {
-                .node.cc = &at,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &at,
                 .next = &dom_patt,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             user = {
-                .node.cc = &unres,
-                .node.type = TYPE_CC,
+                .node = (pattern_t*) &unres,
                 .next = &att,
                 .min = 1,
                 .max = -1,
@@ -196,25 +204,23 @@ int main() {
             };
 
         c_pattern patte = {
+            .type = TYPE_PATTERN,
             .join_type = PATTERN_MATCH_AND,
             .first = &user,
             .last = &dom_patt
         };
 
-        pattern_t patt = {
-            .patt = &patte,
-            .type = TYPE_PATTERN
-        };
+        pattern_t *patt = (pattern_t*) &patte;
 
         match_t match;
 
-        assert(pattern_match(&patt, "c.j.knittel@wustl.edu", 1, &match), 0);
+        assert(pattern_match(patt, "c.j.knittel@wustl.edu", 1, &match), 0);
         assert(match.so, 12);
         assert(match.eo, 21);
-        assert(pattern_match(&patt, "plknit00@umich.edu", 1, &match), 0);
+        assert(pattern_match(patt, "plknit00@umich.edu", 1, &match), 0);
         assert(match.so, 9);
         assert(match.eo, 18);
-        assert(pattern_match(&patt, "c.j.knittel@wustf.edu", 1, &match),
+        assert(pattern_match(patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
     }

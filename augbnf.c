@@ -226,8 +226,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
     int determined_rule_grouping = 0;
 
     struct token *token;
-    c_pattern *group;
-    literal *lit;
+    pattern_t *group;
 
     do {
         ret = get_next_non_whitespace(state);
@@ -289,8 +288,9 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // capturing group
-            group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, group, '}');
+            group = (pattern_t*) calloc(1, sizeof(c_pattern));
+            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            ret = token_group_parse(state, &group->patt, '}');
             if (ret != 0) {
                 free(group);
                 free(token);
@@ -300,8 +300,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             state->buf++;
 
             token->flags |= TOKEN_CAPTURE;
-            token->node.patt = group;
-            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
+            token->node = group;
         }
         else if (*buf == '[') {
             if (token->min != 0 || token->max != 0) {
@@ -312,8 +311,9 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // optional group
-            group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, group, ']');
+            group = (pattern_t*) calloc(1, sizeof(c_pattern));
+            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            ret = token_group_parse(state, &group->patt, ']');
             if (ret != 0) {
                 free(group);
                 free(token);
@@ -323,15 +323,15 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             state->buf++;
 
             token->max = 1;
-            token->node.patt = group;
-            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
+            token->node = group;
         }
         else if (*buf == '(') {
             // skip over this group identifier
             state->buf++;
             // plain group
-            group = (c_pattern*) calloc(1, sizeof(c_pattern));
-            ret = token_group_parse(state, group, ')');
+            group = (pattern_t*) calloc(1, sizeof(c_pattern));
+            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            ret = token_group_parse(state, &group->patt, ')');
             if (ret != 0) {
                 free(group);
                 free(token);
@@ -340,8 +340,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over the terminating group identifier
             state->buf++;
 
-            token->node.patt = group;
-            token->node.type = TYPE_PATTERN | PATT_ANONYMOUS;
+            token->node = group;
         }
         else if (*buf == '"') {
             // literal
@@ -370,11 +369,11 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 return empty_string;
             }
 
-            lit = (literal*) malloc(word_len);
-            memcpy(lit->word, word, word_len);
+            group = (pattern_t*) malloc(SIZEOF_LITERAL(word_len));
+            group->type = TYPE_LITERAL | PATT_ANONYMOUS;
+            memcpy(group->lit.word, word, word_len);
 
-            token->node.lit = lit;
-            token->node.type = TYPE_LITERAL | PATT_ANONYMOUS;
+            token->node = group;
         }
         else {
             // check for a plain token
@@ -394,10 +393,10 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             size_t word_len = (size_t) (buf - name);
             // copy the name from the buffer into a malloced region pointed
             // to from the rule_list_node
-            token->node.lit = (unresolved*) malloc(word_len + 1);
-            memcpy(token->node.lit->word, name, word_len);
-            token->node.lit->word[word_len] = '\0';
-            token->node.type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
+            token->node = (pattern_t*) malloc(SIZEOF_LITERAL(word_len + 1));
+            token->node->type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
+            memcpy(token->node->lit.word, name, word_len);
+            token->node->lit.word[word_len] = '\0';
         }
         buf = state->buf;
 
@@ -409,7 +408,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 BNF_ERR("EOF reached while in enclosed group (either \"()\", "
                         "\"{}\" or \"[]\")\n");
                 // only safe because node is first element of token
-                pattern_free(&token->node);
+                pattern_free(token->node);
                 return unclosed_grouping;
             }
             buf = state->buf;
@@ -435,7 +434,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     BNF_ERR("missing '|' between tokens in an OR grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    pattern_free(&token->node);
+                    pattern_free(token->node);
                     return and_or_mix;
                 }
             }
@@ -446,7 +445,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     BNF_ERR("found '|' after tokens in an AND grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    pattern_free(&token->node);
+                    pattern_free(token->node);
                     return and_or_mix;
                 }
             }
@@ -532,26 +531,20 @@ static pattern_t* rule_parse(parse_state *state) {
     state->buf = buf;
     // buf is now at the start of the tokens
 
-    pattern_t *rule = (pattern_t*) malloc(sizeof(pattern_t));
+    pattern_t *rule = (pattern_t*) calloc(1, sizeof(c_pattern));
     if (rule == NULL) {
-        return NULL;
-    }
-    rule->patt = (c_pattern*) calloc(1, sizeof(c_pattern));
-    if (rule->patt == NULL) {
-        free(rule);
         return NULL;
     }
     rule->type = TYPE_PATTERN;
 
     char* hash_name = (char*) malloc(strlen(name) + 1);
     if (hash_name == NULL) {
-        free(rule->patt);
         free(rule);
     }
     strcpy(hash_name, name);
     hash_insert(&state->rules, hash_name, rule);
 
-    ret = token_group_parse(state, rule->patt, '\0');
+    ret = token_group_parse(state, &rule->patt, '\0');
     if (ret != 0) {
         errno = ret;
         // memory cleanup will be done outside, as rule is already in rule set
@@ -576,25 +569,33 @@ static pattern_t* rule_parse(parse_state *state) {
 #define VISITED    0x20
 
 
-static void clear_processing_bits(pattern_t *rule) {
-    rule->type &= ~CLEAR_MASK;
+static void clear_processing_bits(c_pattern *rule) {
+    rule->join_type &= ~CLEAR_MASK;
 }
 
-static int is_processing(pattern_t *rule) {
-    return (rule->type & PROCESSING) != 0;
+static int is_processing(c_pattern *rule) {
+    return (rule->join_type & PROCESSING) != 0;
 }
 
-static void mark_processing(pattern_t *rule) {
-    rule->type |= PROCESSING;
+static void mark_processing(c_pattern *rule) {
+    // we ONLY want to mark rules that are not anonymous (i.e. in the map of
+    // rules), since anonymous rules cannot be referenced by more than one
+    // other rule and because we only go back and clear the processing bits
+    // of named rules
+    if (!patt_anonymous(CPATT_TO_PATT(rule))) {
+        rule->join_type |= PROCESSING;
+    }
 }
 
-static int is_visited(pattern_t *rule) {
-    return (rule->type & VISITED) != 0;
+static int is_visited(c_pattern *rule) {
+    return (rule->join_type & VISITED) != 0;
 }
 
-static void mark_visited(pattern_t *rule) {
-    rule->type &= ~PROCESSING;
-    rule->type |= VISITED;
+static void mark_visited(c_pattern *rule) {
+    if (!patt_anonymous(CPATT_TO_PATT(rule))) {
+        rule->join_type &= ~PROCESSING;
+        rule->join_type |= VISITED;
+    }
 }
 
 
@@ -603,33 +604,37 @@ static void mark_visited(pattern_t *rule) {
  */
 static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
 
-    if (is_processing(rule)) {
-        // error, cycle detected
-        BNF_ERR_NOLINE("circular symbol reference\n");
-        errno = circular_definition;
-        return -1;
-    }
-    if (is_visited(rule)) {
-        // we have already visited this symbol, so its children have been
-        // resolved
-        return 0;
-    }
-
     if (patt_type(rule) != TYPE_PATTERN) {
         // only patterns can reference other symbols
         return 0;
     }
 
-    mark_processing(rule);
-    c_pattern *patt = rule->patt;
+    c_pattern *patt = &rule->patt;
+
+    if (is_processing(patt)) {
+        // error, cycle detected
+        BNF_ERR_NOLINE("circular symbol reference\n");
+        errno = circular_definition;
+        return -1;
+    }
+    if (is_visited(patt)) {
+        // we have already visited this symbol, so its children have been
+        // resolved
+        return 0;
+    }
+
+    mark_processing(patt);
 
     for (struct token *child = patt->first; child != NULL;
             child = child->next) {
 
-        if (patt_type(&child->node) == TYPE_UNRESOLVED) {
+        if (patt_type(child->node) == TYPE_UNRESOLVED) {
             // if this child is unresolved, check the list of rules for a
             // match
-            char *symbol = child->node.lit->word;
+            
+            pattern_t *ch = child->node;
+            unresolved *sym = &ch->lit;
+            char *symbol = sym->word;
             pattern_t *res = hash_get(rules, symbol);
 
             if (res == NULL) {
@@ -644,28 +649,25 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
                 return ret;
             }
 
-            unresolved *sym = child->node.lit;
-
             // now place the resolved symbol in place of the old symbol
-            child->node = *res;
-            clear_processing_bits(&child->node);
-            
+            child->node = res;
+
             // increment the reference count of what we just linked to
             patt_ref_inc(res);
 
             // we are now done with the unresolved node, so we can free it
-            free(sym);
+            free(ch);
         }
-        else if (patt_type(&child->node) == TYPE_PATTERN) {
+        else if (patt_type(child->node) == TYPE_PATTERN) {
             // if this is a pattern, must make recursive calls to resolve
-            int ret = _resolve_symbols(rules, &child->node);
+            int ret = _resolve_symbols(rules, child->node);
             if (ret != 0) {
                 return ret;
             }
         }
     }
 
-    mark_visited(rule);
+    mark_visited(patt);
     return 0;
 }
 
@@ -683,15 +685,20 @@ static int resolve_symbols(parse_state *state) {
     if (ret != 0) {
         return ret;
     }
-    
+
     // go through and check to see if there are any unused symbols
     void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
-        pattern_t *patt = (pattern_t*) v;
+        pattern_t *node = (pattern_t*) v;
+        if (patt_type(node) != TYPE_PATTERN) {
+            // skip over non-patterns
+            continue;
+        }
+        c_pattern *patt = &node->patt;
         if (!is_visited(patt)) {
             // unused symbol
             BNF_WARNING("unused symbol %s\n", (char*) k);
-            pattern_free_shallow(patt);
+            pattern_free_shallow(node);
         }
         else {
             clear_processing_bits(patt);
@@ -712,16 +719,17 @@ static int _consolidate(pattern_t *rule) {
         return 0;
     }
 
-    c_pattern *patt = rule->patt;
+    c_pattern *patt = &rule->patt;
 
     // if a pattern has only one child, elevate the child
     if (patt->first == patt->last) {
         // first try consolidating this child
-        _consolidate(&patt->first->node);
-        
+        _consolidate(patt->first->node);
+
         // now elevate the child and free the old pattern
-        *rule = patt->first->node;
-        free(patt);
+        // TODO RESTRUCTURE THIS
+        //*rule = patt->first->node;
+        //free(patt);
     }
 
     return 0;
@@ -751,7 +759,6 @@ static pattern_t* bnf_parse(parse_state *state) {
     }
     init_parsers();
 
-    state->main_rule = (pattern_t*) malloc(sizeof(pattern_t));
     // first parse the main rule, which is defined as the first rule
     state->main_rule = rule_parse(state);
     if (state->main_rule == NULL) {
@@ -774,7 +781,7 @@ static pattern_t* bnf_parse(parse_state *state) {
         state->main_rule = NULL;
     }
     else {
-        ret = consolidate(state);
+        ret = 0;//consolidate(state);
         if (ret != 0) {
             pattern_free(state->main_rule);
             state->main_rule = NULL;
@@ -835,32 +842,52 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
 
 
 
-static void _bnf_print(pattern_t *patt) {
+static void _bnf_print(pattern_t *patt, int min, int max) {
     switch (patt_type(patt)) {
         case TYPE_PATTERN:
-            printf("(");
-            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
-                _bnf_print(&t->node);
+            if (min == 0 && max == 1) {
+                printf("[");
+            }
+            else if (min == 1 && max == 1) {
+                printf("(");
+            }
+            else {
+                if (min != 0) {
+                    printf("%d", min);
+                }
+                printf("*");
+                if (max != -1) {
+                    printf("%d", max);
+                }
+                printf("(");
+            }
+            for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
+                _bnf_print(t->node, t->min, t->max);
                 if (t->next != NULL) {
-                    printf((patt->patt->join_type == PATTERN_MATCH_AND)
+                    printf((patt->patt.join_type == PATTERN_MATCH_AND)
                             ? " " : " | ");
                 }
             }
-            printf(")");
+            if (min == 0 && max == 1) {
+                printf("]");
+            }
+            else {
+                printf(")");
+            }
             break;
         case TYPE_CC:
             break;
         case TYPE_LITERAL:
-            printf("\"%s\"", patt->lit->word);
+            printf("\"%s\"", patt->lit.word);
             break;
         case TYPE_UNRESOLVED:
-            printf("%s", patt->lit->word);
+            printf("%s", patt->lit.word);
             break;
     }
 }
 
 void bnf_print(pattern_t *patt) {
-    _bnf_print(patt);
+    _bnf_print(patt, 1, 1);
     printf("\n");
 }
 

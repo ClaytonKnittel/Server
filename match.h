@@ -38,40 +38,33 @@
 #define __bitv_t uint64_t
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
+#define SIZEOF_LITERAL(num_chars) (sizeof(literal) + (num_chars))
 
 
-// generic pattern node which can match to things
-typedef struct pattern_node {
-    union {
-        struct char_class *cc;
-        struct literal *lit;
-        struct c_pattern *patt;
-    };
-    // type is either:
-    //  TYPE_CC: this is a char class
-    //  TYPE_LITERAL: matches a literal string
-    //  TYPE_PATTERN: this is a pattern
-    // and may contain flags like
-    //  PATT_ANONYMOUS: this pattern was not one of the named symbols
-    //      during compilation of bnf
-    // and the remainder of type is used for reference counting
-    int type;
-} pattern_t;
-
+#define CPATT_TO_PATT(cpatt) ((pattern_t*) (cpatt))
 
 // for matching single characters to a set of characters
 typedef struct char_class {
+    // to shadow type in pattern_t
+    int type;
+
     unsigned long bitv[NUM_CHARS / (8 * sizeof(unsigned long))];
 } char_class;
 
 // for matching a string of characters exactly
 typedef struct literal {
+    // to shadow type in pattern_t
+    int type;
+
     char word[0];
 } literal;
 
 
 
 typedef struct c_pattern {
+    // to shadow type in pattern_t
+    int type;
+
     // join type is one of
     //  PATTERN_MATCH_AND: each token must be found in sequence
     //  PATTERN_MATCH_OR: exactly one token is to be chosen, with
@@ -86,11 +79,28 @@ typedef struct c_pattern {
 } c_pattern;
 
 
+// generic pattern node which can match to things
+typedef union pattern_node {
+    // type is either:
+    //  TYPE_CC: this is a char class
+    //  TYPE_LITERAL: matches a literal string
+    //  TYPE_PATTERN: this is a pattern
+    // and may contain flags like
+    //  PATT_ANONYMOUS: this pattern was not one of the named symbols
+    //      during compilation of bnf
+    // and the remainder of type is used for reference counting
+    int type;
+
+    char_class cc;
+    literal lit;
+    c_pattern patt;
+} pattern_t;
+
 
 struct token {
     // node must be first member of token because of memory shortcut
     // used in augbnf.c to free tokens
-    pattern_t node;
+    pattern_t *node;
 
     // singly-linked list of tokens in a pattern
     struct token *next;
@@ -200,14 +210,16 @@ static __inline unsigned patt_ref_count(pattern_t *patt) {
 }
 
 static __inline int token_type(struct token *t) {
-    return patt_type(&t->node);
+    return patt_type(t->node);
 }
 
 
 // -------------------- char_class ops --------------------
 
 static __inline void cc_clear(char_class *cc) {
-    __builtin_memset(cc, 0, sizeof(char_class));
+    cc->type = TYPE_CC;
+    __builtin_memset(&cc->bitv[0], 0, sizeof(char_class) -
+            offsetof(char_class, bitv));
 }
 
 /*

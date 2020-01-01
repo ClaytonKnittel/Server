@@ -14,7 +14,7 @@ static __inline char* _match_token_and(struct token *token, char *buf,
         match_t matches[]) {
 
     size_t init_n_matches = *n_matches;
-    c_pattern *patt = token->node.patt;
+    c_pattern *patt = &token->node->patt;
     char *endptr = buf;
 
     for (struct token *child = patt->first; child != NULL;
@@ -37,7 +37,7 @@ static __inline char* _match_token_or(struct token *token, char *buf,
         match_t matches[]) {
 
     size_t init_n_matches = *n_matches;
-    c_pattern *patt = token->node.patt;
+    c_pattern *patt = &token->node->patt;
 
     for (struct token *child = patt->first; child != NULL;
             child = child->next) {
@@ -75,7 +75,7 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
     switch (token_type(token)) {
         case TYPE_PATTERN:
             // this is a pattern
-            patt = token->node.patt;
+            patt = &token->node->patt;
 
             while (token->max == -1 || match_count < token->max) {
                 // look for a match to this pattern
@@ -102,7 +102,7 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
             }
             break;
         case TYPE_CC:
-            cc = token->node.cc;
+            cc = &token->node->cc;
 
             // continue matching characters until we reach the max or a mismatch
             // is found
@@ -113,7 +113,7 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
             }
             break;
         case TYPE_LITERAL:
-            lit = token->node.lit;
+            lit = &token->node->lit;
             size_t len = strlen(lit->word);
 
             while ((token->max == -1 || match_count < token->max)
@@ -150,7 +150,7 @@ int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
 
     size_t capture_count = 0;
     struct token token = {
-        .node = *patt,
+        .node = patt,
         .min = 1,
         .max = 1,
         .flags = 0
@@ -174,8 +174,8 @@ int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
 void pattern_free(pattern_t *patt) {
     switch (patt_type(patt)) {
         case TYPE_PATTERN:
-            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
-                pattern_free(&t->node);
+            for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
+                pattern_free(t->node);
             }
         case TYPE_CC:
         case TYPE_LITERAL:
@@ -188,9 +188,9 @@ void pattern_free(pattern_t *patt) {
 void pattern_free_shallow(pattern_t *patt) {
     switch (patt_type(patt)) {
         case TYPE_PATTERN:
-            for (struct token *t = patt->patt->first; t != NULL; t = t->next) {
-                if (patt_anonymous(&t->node)) {
-                    pattern_free_shallow(&t->node);
+            for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
+                if (patt_anonymous(t->node)) {
+                    pattern_free_shallow(t->node);
                 }
             }
         case TYPE_CC:
