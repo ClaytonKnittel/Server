@@ -39,8 +39,6 @@
 #define __bitv_t uint64_t
 #define __bitv_t_mask ((1 << __bitv_t_shift) - 1)
 
-#define SIZEOF_LITERAL(num_chars) (sizeof(literal) + (num_chars))
-
 
 #define CPATT_TO_PATT(cpatt) ((pattern_t*) (cpatt))
 
@@ -57,8 +55,8 @@ typedef struct literal {
     // to shadow type in pattern_t
     int type;
 
-    // TODO include length of msg and make merge_literals in augbnf.c more
-    // efficient
+    // length of word, excluding the null-terminator
+    unsigned length;
 
     char word[0];
 } literal;
@@ -135,6 +133,50 @@ typedef struct {
     // after the last location in the found match
     ssize_t so, eo;
 } match_t;
+
+
+
+// -------------------- pattern struct construction --------------------
+
+
+/*
+ * mallocs a literal* and initailizes all fields besides the word itself.
+ * word_length is the length of the word to be stored, which does not include
+ * the null terminator
+ */
+static __inline pattern_t* make_literal(unsigned word_length) {
+    pattern_t *patt = (pattern_t*) malloc(sizeof(literal) + word_length);
+    if (patt != NULL) {
+        patt->type = TYPE_LITERAL;
+        patt->lit.length = word_length;
+    }
+    return patt;
+}
+
+
+static __inline pattern_t* make_char_class() {
+    pattern_t *patt = (pattern_t*) malloc(sizeof(char_class));
+    if (patt != NULL) {
+        patt->type = TYPE_CC;
+    }
+    return patt;
+}
+
+
+static __inline pattern_t* make_c_pattern() {
+    pattern_t *patt = (pattern_t*) malloc(sizeof(c_pattern));
+    if (patt != NULL) {
+        patt->type = TYPE_PATTERN;
+        patt->patt.first = patt->patt.last = NULL;
+    }
+    return patt;
+}
+
+
+static __inline struct token* make_token() {
+    struct token *t = (struct token *) calloc(1, sizeof(struct token));
+    return t;
+}
 
 
 

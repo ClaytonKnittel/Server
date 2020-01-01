@@ -238,7 +238,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         // since the preceeding method modified only buf in state
         buf = state->buf;
 
-        token = (struct token*) calloc(1, sizeof(struct token));
+        token = make_token();
 
         // search for quantifiers
         if (cc_is_match(&parsers.num, *buf)) {
@@ -288,8 +288,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // capturing group
-            group = (pattern_t*) calloc(1, sizeof(c_pattern));
-            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            group = make_c_pattern();
+            group->type |= PATT_ANONYMOUS;
             ret = token_group_parse(state, &group->patt, '}');
             if (ret != 0) {
                 free(group);
@@ -311,8 +311,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // optional group
-            group = (pattern_t*) calloc(1, sizeof(c_pattern));
-            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            group = make_c_pattern();
+            group->type |= PATT_ANONYMOUS;
             ret = token_group_parse(state, &group->patt, ']');
             if (ret != 0) {
                 free(group);
@@ -329,8 +329,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // plain group
-            group = (pattern_t*) calloc(1, sizeof(c_pattern));
-            group->type = TYPE_PATTERN | PATT_ANONYMOUS;
+            group = make_c_pattern();
+            group->type |= PATT_ANONYMOUS;
             ret = token_group_parse(state, &group->patt, ')');
             if (ret != 0) {
                 free(group);
@@ -361,17 +361,141 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // position at the end of these ifs
             state->buf = buf;
 
-            // length includes the null terminator
-            size_t word_len = (size_t) (buf - word);
-            if (word_len == 1) {
+            // length does not include the null terminator
+            size_t word_len = (size_t) (buf - word) - 1;
+            if (word_len == 0) {
                 BNF_ERR("string literal cannot be empty\n");
                 free(token);
                 return empty_string;
             }
 
-            group = (pattern_t*) malloc(SIZEOF_LITERAL(word_len));
-            group->type = TYPE_LITERAL | PATT_ANONYMOUS;
+            group = make_literal(word_len);
+            group->type |= PATT_ANONYMOUS;
             memcpy(group->lit.word, word, word_len);
+
+            token->node = group;
+        }
+        else if (*buf == '\'') {
+            // single-character literal
+
+            // ignore the first '
+            buf++;
+
+            char val;
+            if (*buf == '\0') {
+                // badly-formatted single-character literal
+                BNF_ERR("dangling \"'\" at end of line\n");
+                free(token);
+                return bad_single_char_lit;
+            }
+
+            if (*(buf + 1) == '\'') {
+                // unescaped single-char literal
+                val = *buf;
+
+                // place buf just beyond the last '
+                buf += 2;
+            }
+            else if (*buf == '\\') {
+                buf++;
+                
+                if (*buf == '\0') {
+                    BNF_ERR("dangling \"\\\" at end of line\n");
+                    free(token);
+                    return bad_single_char_lit;
+                }
+                else if (*(buf + 1) == '\'') {
+
+                    // escaped literal char
+                    switch (*buf) {
+                        case 'a':
+                            val = '\a';
+                            break;
+                        case 'b':
+                            val = '\b';
+                            break;
+                        case 'f':
+                            val = '\f';
+                            break;
+                        case 'n':
+                            val = '\n';
+                            break;
+                        case 'r':
+                            val = '\r';
+                            break;
+                        case 't':
+                            val = '\t';
+                            break;
+                        case 'v':
+                            val = '\v';
+                            break;
+                        case '\\':
+                            val = '\\';
+                            break;
+                        case '\'':
+                            val = '\'';
+                            break;
+                        case '"':
+                            val = '\"';
+                            break;
+                        case '?':
+                            val = '\?';
+                            break;
+                        default:
+                            BNF_ERR("unknown escape sequence \"\\%c\"",
+                                    *buf);
+                            free(token);
+                            return bad_single_char_lit;
+                    }
+                    // place buf just beyond the last '
+                    buf += 2;
+                }
+                else if (*buf == 'x' && *(buf + 1) != '\0'
+                        && *(buf + 2) == '\'') {
+
+                    buf++;
+
+#define IS_HEX(c) (((c) >= '0' && (c) <= '9') \
+        || ((c) >= 'a' && (c) <= 'f') \
+        || ((c) >= 'A' && (c) <= 'F'))
+
+                    // escaped hex char
+
+                    if (!IS_HEX(*buf) || !IS_HEX(*(buf + 1))) {
+                        BNF_ERR("invalid char hexcode \"\\x%c%c\"\n",
+                                *buf, *(buf + 1));
+                        free(token);
+                        return bad_single_char_lit;
+                    }
+
+#undef IS_HEX
+
+#define HEX_VAL(c) \
+                    (((c) >= '0' && (c) <= '9') ? (c) - '0' : \
+                     ((c) >= 'a' && (c) <= 'f') ? (c) - 'a' + 10 : \
+                     (c) - 'A' + 10)
+                    
+                    val = (HEX_VAL(*buf) << 4) + HEX_VAL(*(buf + 1));
+
+                    // place buf just beyond the last '
+                    buf += 3;
+                }
+                else {
+                    BNF_ERR("badly formatted single-character literal\n");
+                    free(token);
+                    return bad_single_char_lit;
+                }
+            }
+            else {
+                BNF_ERR("badly formatted single-character literal\n");
+                free(token);
+                return bad_single_char_lit;
+            }
+            state->buf = buf;
+
+            group = make_literal(1);
+            group->type |= PATT_ANONYMOUS;
+            group->lit.word[0] = val;
 
             token->node = group;
         }
@@ -389,14 +513,13 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // position at the end of these ifs
             state->buf = buf;
 
-            // length, not including the null terminating character
+            // length, not including the null terminater
             size_t word_len = (size_t) (buf - name);
             // copy the name from the buffer into a malloced region pointed
             // to from the rule_list_node
-            group = (pattern_t*) malloc(SIZEOF_LITERAL(word_len + 1));
+            group = make_literal(word_len);
             group->type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
             memcpy(group->lit.word, name, word_len);
-            group->lit.word[word_len] = '\0';
 
             token->node = group;
         }
@@ -537,11 +660,10 @@ static pattern_t* rule_parse(parse_state *state) {
     state->buf = buf;
     // buf is now at the start of the tokens
 
-    pattern_t *rule = (pattern_t*) calloc(1, sizeof(c_pattern));
+    pattern_t *rule = make_c_pattern();
     if (rule == NULL) {
         return NULL;
     }
-    rule->type = TYPE_PATTERN;
 
     char* hash_name = (char*) malloc(strlen(name) + 1);
     if (hash_name == NULL) {
@@ -640,7 +762,12 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
             
             pattern_t *ch = child->node;
             unresolved *sym = &ch->lit;
-            char *symbol = sym->word;
+
+            // must malloc because we need null terminator
+            char *symbol = (char*) malloc(sym->length + 1);
+            memcpy(symbol, sym->word, sym->length);
+            symbol[sym->length] = '\0';
+
             pattern_t *res = hash_get(rules, symbol);
 
             if (res == NULL) {
@@ -737,9 +864,7 @@ static void merge_literals(struct token *first_literal, struct token *until) {
         total_length += strlen(lit->word);
     }
 
-    pattern_t *big_lit_p = (pattern_t*)
-        malloc(SIZEOF_LITERAL(total_length + 1));
-    big_lit_p->type = TYPE_LITERAL;
+    pattern_t *big_lit_p = make_literal(total_length);
     literal *big_lit = &big_lit_p->lit;
 
     total_length = 0;
@@ -760,7 +885,6 @@ static void merge_literals(struct token *first_literal, struct token *until) {
             free(t);
         }
     }
-    big_lit->word[total_length] = '\0';
 
     first_literal->node = big_lit_p;
     first_literal->next = until;
@@ -1010,10 +1134,15 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
         case TYPE_CC:
             break;
         case TYPE_LITERAL:
-            printf("\"%s\"", patt->lit.word);
+            if (patt->lit.length == 1) {
+                printf("'%c'", patt->lit.word[0]);
+            }
+            else {
+                printf("\"%*s\"", patt->lit.length, patt->lit.word);
+            }
             break;
         case TYPE_UNRESOLVED:
-            printf("%s", patt->lit.word);
+            printf("%*s", patt->lit.length, patt->lit.word);
             break;
     }
     if (min == 0 && max == 1) {

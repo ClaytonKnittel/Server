@@ -138,14 +138,17 @@ int main() {
         char_class unres, at;
         struct test {
             int type;
+            unsigned length;
             char dom[10];
         }
         wu = {
             .type = TYPE_LITERAL,
+            .length = sizeof("wustl.edu") - 1,
             .dom = "wustl.edu"
         },
         um = {
             .type = TYPE_LITERAL,
+            .length = sizeof("umich.edu") - 1,
             .dom = "umich.edu"
         };
 
@@ -335,6 +338,20 @@ int main() {
         assert(pattern_match(ret, "paige is a baby", 1, &match), 0);
         assert(match.so, 0);
         assert(match.eo, 5);
+
+        pattern_free(ret);
+
+
+
+        char bnf3[] =
+            " hex = ('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'"
+            " | 'a' | 'b' | 'c' | 'd' | 'e' | 'f')";
+
+        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_print(ret);
 
         pattern_free(ret);
     }

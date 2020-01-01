@@ -118,6 +118,7 @@ enum {
     zero_quantifier,
     open_string,
     empty_string,
+    bad_single_char_lit,
     unclosed_grouping,
     circular_definition,
     undefined_symbol,

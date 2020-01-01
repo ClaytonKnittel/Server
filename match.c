@@ -114,12 +114,11 @@ static char* _pattern_match(struct token *token, char *buf, int offset,
             break;
         case TYPE_LITERAL:
             lit = &token->node->lit;
-            size_t len = strlen(lit->word);
 
             while ((token->max == -1 || match_count < token->max)
-                    && memcmp(endptr, lit->word, len) == 0) {
+                    && memcmp(endptr, lit->word, lit->length) == 0) {
                 match_count++;
-                endptr += len;
+                endptr += lit->length;
             }
             break;
         default:
