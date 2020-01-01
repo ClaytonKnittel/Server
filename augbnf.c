@@ -393,11 +393,17 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             size_t word_len = (size_t) (buf - name);
             // copy the name from the buffer into a malloced region pointed
             // to from the rule_list_node
-            token->node = (pattern_t*) malloc(SIZEOF_LITERAL(word_len + 1));
-            token->node->type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
-            memcpy(token->node->lit.word, name, word_len);
-            token->node->lit.word[word_len] = '\0';
+            group = (pattern_t*) malloc(SIZEOF_LITERAL(word_len + 1));
+            group->type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
+            memcpy(group->lit.word, name, word_len);
+            group->lit.word[word_len] = '\0';
+
+            token->node = group;
         }
+        // under all branches, we created a new pattern_t node, so increment
+        // its reference count
+        patt_ref_inc(group);
+
         buf = state->buf;
 
         if (term_on != '\0') {
@@ -709,27 +715,147 @@ static int resolve_symbols(parse_state *state) {
 
 
 
+/*
+ * go from first_literal until "until", which are all assumed to be literals,
+ * and combine them into one big literal, freeing each of the now unused
+ * literals and tokens (besides the first token which can be re-used and given
+ * back) and mallocing a new literal struct
+ *
+ * links the new literal struct back into the children list by resing
+ * first_literal token, so we don't have to worry about linking the predecessor
+ * to first_literal, and we just need to link first_literal to until
+ */
+static void merge_literals(struct token *first_literal, struct token *until) {
+    if (first_literal->next == until) {
+        // if we are merging a single literal, we are done
+        return;
+    }
+    
+    size_t total_length = 0;
+    for (struct token *t = first_literal; t != until; t = t->next) {
+        literal *lit = &t->node->lit;
+        total_length += strlen(lit->word);
+    }
+
+    pattern_t *big_lit_p = (pattern_t*)
+        malloc(SIZEOF_LITERAL(total_length + 1));
+    big_lit_p->type = TYPE_LITERAL;
+    literal *big_lit = &big_lit_p->lit;
+
+    total_length = 0;
+    for (struct token *t = first_literal; t != until; t = t->next) {
+        pattern_t *patt = t->node;
+        literal *lit = &patt->lit;
+
+        size_t size = strlen(lit->word);
+        memcpy(big_lit->word + total_length, lit->word, size);
+        total_length += size;
+
+        patt_ref_dec(patt);
+        if (patt_ref_count(patt) == 0) {
+            free(patt);
+        }
+        // reuse first literal's token struct for the new big_lit
+        if (t != first_literal) {
+            free(t);
+        }
+    }
+    big_lit->word[total_length] = '\0';
+
+    first_literal->node = big_lit_p;
+    first_literal->next = until;
+    first_literal->min = 1;
+    first_literal->max = 1;
+    first_literal->flags = 0;
+}
+
+
 
 /*
  * helper method for consolidate
  */
-static int _consolidate(pattern_t *rule) {
-    if (patt_type(rule) != TYPE_PATTERN) {
+static int _consolidate(struct token *token) {
+    if (patt_type(token->node) != TYPE_PATTERN) {
         // only consolidate patterns
         return 0;
     }
 
-    c_pattern *patt = &rule->patt;
+    pattern_t *node = token->node;
+    c_pattern *patt = &node->patt;
 
-    // if a pattern has only one child, elevate the child
+    for (struct token *child = patt->first; child != NULL;
+            child = child->next) {
+        _consolidate(child);
+    }
+
+    if (patt->join_type == PATTERN_MATCH_AND) {
+        // keep track of all contiguous literals so they can be merged into
+        // one large literal
+        struct token *first_literal = NULL;
+
+#define LIT_IS_MERGEABLE(token) \
+        ((token) != NULL \
+         && patt_type((token)->node) == TYPE_LITERAL \
+         && ((token)->min == (token)->max) \
+         && !token_captures(token))
+
+        for (struct token *child = patt->first; child != NULL;
+                child = child->next) {
+            // for merging multiple adjacent literals
+            // test not only if we haven't found a first literal yet, but
+            // also that there is at least one other literal after that we
+            // can merge with
+            if (first_literal == NULL && LIT_IS_MERGEABLE(child)) {
+                first_literal = child;
+            }
+            if (first_literal != NULL && !LIT_IS_MERGEABLE(child->next)) {
+                merge_literals(first_literal, child->next);
+                if (child->next == NULL) {
+                    // we need to update last pointer of this pattern
+                    patt->last = first_literal;
+                }
+                first_literal = NULL;
+            }
+        }
+    }
+    else { // PATTERN_MATCH_OR
+
+        for (struct token *child = patt->first; child != NULL;
+                child = child->next) {
+        }
+    }
+
+    // if a pattern has only one child, try to elevate the child (do this after
+    // above work in case above would cause this pattern to now only have one
+    // child)
     if (patt->first == patt->last) {
-        // first try consolidating this child
-        _consolidate(patt->first->node);
+        struct token *child = patt->first;
+
+        if (child->min > 1 && token->max != 1) {
+            // we cannot consolidate with a child if they require more than
+            // one grouping and we allow more than one occurence (because,
+            // for example, the divisibility of number of occurences of a
+            // pattern may matter)
+            return 0;
+        }
 
         // now elevate the child and free the old pattern
-        // TODO RESTRUCTURE THIS
-        //*rule = patt->first->node;
-        //free(patt);
+        //
+        // possibilities:
+        // 1*1(m*n("x")) -> m*n("x")
+        // m*n(0*1("x")) -> 0*n("x")
+        // m*n(1*1("x")) -> m*n("x")
+        token->min = token->min == 1 ? child->min
+            : (child->min == 0 ? 0 : token->min);
+        token->max = token->max == 1 ? child->max : token->max;
+        token->node = child->node;
+
+        // free the pattern we just consolidated if its reference count went
+        // to 0
+        patt_ref_dec(node);
+        if (patt_ref_count(node) == 0) {
+            free(node);
+        }
     }
 
     return 0;
@@ -744,7 +870,16 @@ static int _consolidate(pattern_t *rule) {
  * returns 0 on success, -1 on failure
  */
 static int consolidate(parse_state *state) {
-    return _consolidate(state->main_rule);
+    struct token _placeholder = {
+        .node = state->main_rule,
+        .min = 1,
+        .max = 1,
+        .flags = 0
+    };
+    int ret = _consolidate(&_placeholder);
+    // in case it was updated in _consolidate
+    state->main_rule = _placeholder.node;
+    return ret;
 }
 
 
@@ -781,7 +916,7 @@ static pattern_t* bnf_parse(parse_state *state) {
         state->main_rule = NULL;
     }
     else {
-        ret = 0;//consolidate(state);
+        ret = consolidate(state);
         if (ret != 0) {
             pattern_free(state->main_rule);
             state->main_rule = NULL;
@@ -843,22 +978,22 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
 
 
 static void _bnf_print(pattern_t *patt, int min, int max) {
+    if (min == 0 && max == 1) {
+        printf("[");
+    }
+    else if (min != 1 || max != 1) {
+        if (min != 0) {
+            printf("%d", min);
+        }
+        printf("*");
+        if (max != -1) {
+            printf("%d", max);
+        }
+        printf("(");
+    }
     switch (patt_type(patt)) {
         case TYPE_PATTERN:
-            if (min == 0 && max == 1) {
-                printf("[");
-            }
-            else if (min == 1 && max == 1) {
-                printf("(");
-            }
-            else {
-                if (min != 0) {
-                    printf("%d", min);
-                }
-                printf("*");
-                if (max != -1) {
-                    printf("%d", max);
-                }
+            if (min == 1 && max == 1) {
                 printf("(");
             }
             for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
@@ -868,10 +1003,7 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
                             ? " " : " | ");
                 }
             }
-            if (min == 0 && max == 1) {
-                printf("]");
-            }
-            else {
+            if (min == 1 && max == 1) {
                 printf(")");
             }
             break;
@@ -883,6 +1015,12 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
         case TYPE_UNRESOLVED:
             printf("%s", patt->lit.word);
             break;
+    }
+    if (min == 0 && max == 1) {
+        printf("]");
+    }
+    else if (min != 1 || max != 1) {
+        printf(")");
     }
 }
 

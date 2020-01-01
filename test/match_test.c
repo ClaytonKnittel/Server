@@ -233,6 +233,7 @@ int main() {
 
         pattern_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
         assert(pattern_match(ret, "ac", 0, NULL), MATCH_FAIL);
@@ -247,6 +248,7 @@ int main() {
         
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "ca", 0, NULL), 0);
         assert(pattern_match(ret, "ad", 0, NULL), 0);
@@ -297,6 +299,7 @@ int main() {
         ret = bnf_parseb(bnf, sizeof(bnf) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
         assert(pattern_match(ret, "claytoniscool", 0, NULL), MATCH_FAIL);

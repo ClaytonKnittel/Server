@@ -15,6 +15,7 @@
 #define TYPE_LITERAL 1
 #define TYPE_PATTERN 2
 
+// TODO determine if a patt is anonymous by seeing if its ref count is 0
 #define PATT_ANONYMOUS 0x4
 
 // first 3 bits are for type and anonymous flag, use remainder of flag for
@@ -55,6 +56,9 @@ typedef struct char_class {
 typedef struct literal {
     // to shadow type in pattern_t
     int type;
+
+    // TODO include length of msg and make merge_literals in augbnf.c more
+    // efficient
 
     char word[0];
 } literal;
@@ -211,6 +215,10 @@ static __inline unsigned patt_ref_count(pattern_t *patt) {
 
 static __inline int token_type(struct token *t) {
     return patt_type(t->node);
+}
+
+static __inline int token_captures(struct token *t) {
+    return (t->flags & TOKEN_CAPTURE) != 0;
 }
 
 
