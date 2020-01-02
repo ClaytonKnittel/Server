@@ -118,7 +118,7 @@ void hash_free(hashmap *map);
 /*
  * inserts the given key-value pair into the hashmap using the provided
  * hash_fn from the hashmap constructor. This method checks for duplicate
- * entries and returns an error if one is found
+ * entries and returns an error if one is found, otherwise it returns 0
  */
 int hash_insert(hashmap *map, void* k, void* v);
 

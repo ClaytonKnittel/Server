@@ -104,7 +104,7 @@ typedef struct parse_state {
     hashmap rules;
     // which line number we are on while parsing
     size_t linen;
-    pattern_t *main_rule;
+    token_t *main_rule;
 
     // the pointer share between recursive calls of where in memory we are
     // currently parsing the bfn
@@ -225,23 +225,46 @@ static char* get_next_unmatching(char_class *cc, char* buf) {
 /*
  * parse all referenced tokens and literals out of the rule, stopping only
  * when the term_on character has been reached
+ *
+ * on success, this method returns a dynamically allocated token which contains
+ * this entire rule, on failure, NULL is returned and errno is set
  */
-static int token_group_parse(parse_state *state, c_pattern *rule,
-        char term_on) {
+static token_t* token_group_parse(parse_state *state, char term_on) {
 
     char *buf = state->buf;
-    int ret;
+    int retval;
 
-    // to be set when it is known whether they are using PATTERN_AND
-    // or PATTERN_OR grouping
-    int determined_rule_grouping = 0;
+    // to be set when it is known whether they are using AND or OR grouping
+#define GROUP_AND   0x1
+#define GROUP_OR    0x2
+    int rule_grouping = 0;
 
-    struct token *token;
-    pattern_t *group;
+    // the token to be returned, i.e. the token constructed in the first pass
+    // through the loop
+    token_t *ret = NULL;
+    // the token made on the last pass of the loop (for linking)
+    token_t *last = NULL;
+    // the current token being created
+    token_t *token;
+
+#define RETURN_ERR(err_lvl) \
+    errno = (err_lvl); \
+    free(token); \
+    if (ret != NULL) { \
+        pattern_free(ret); \
+    } \
+    return NULL
+
+#define PROPAGATE_ERR \
+    free(token); \
+    if (ret != NULL) { \
+        pattern_free(ret); \
+    } \
+    return NULL
 
     do {
-        ret = get_next_non_whitespace(state);
-        if (ret != 0) {
+        retval = get_next_non_whitespace(state);
+        if (retval != 0) {
             // reached EOF
             return ret;
         }
@@ -250,6 +273,13 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         buf = state->buf;
 
         token = make_token();
+        if (token == NULL) {
+            errno = memory_error;
+            if (ret != NULL) {
+                pattern_free(ret);
+            }
+            return token;
+        }
 
         // search for quantifiers
         if (cc_is_match(&parsers.quantifier, *buf)) {
@@ -263,8 +293,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 if (*buf != '*') {
                     *buf = '\0';
                     BNF_ERR("quantifier %d not proceeded by '*'\n", atoi(m));
-                    free(token);
-                    return num_without_star;
+                    RETURN_ERR(num_without_star);
                 }
                 *buf = '\0';
                 token->min = atoi(m);
@@ -281,20 +310,17 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             }
             if (token->min == 0 && token->max == 0) {
                 BNF_ERR("not allowed to have 0-quantity rule\n");
-                free(token);
-                return zero_quantifier;
+                RETURN_ERR(zero_quantifier);
             }
             if (token->max != -1 && token->min > token->max) {
                 BNF_ERR("max cannot be greater than min in quantifier rule "
                         "(found %d*%d)\n", token->min, token->max);
-                free(token);
-                return zero_quantifier;
+                RETURN_ERR(zero_quantifier);
             }
             buf = get_next_unmatching(&parsers.whitespace, buf);
             if (*buf == '\0') {
                 BNF_ERR("no token following '*' quantifier\n");
-                free(token);
-                return no_token_after_quantifier;
+                RETURN_ERR(no_token_after_quantifier);
             }
         }
 
@@ -304,59 +330,46 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             // skip over this group identifier
             state->buf++;
             // capturing group
-            group = make_c_pattern();
-            group->type |= PATT_ANONYMOUS;
-            ret = token_group_parse(state, &group->patt, '}');
-            if (ret != 0) {
-                free(group);
-                free(token);
-                return ret;
+            token_t *ret = token_group_parse(state, '}');
+            if (ret == NULL) {
+                PROPAGATE_ERR;
             }
             // skip over the terminating group identifier
             state->buf++;
 
             token->flags |= TOKEN_CAPTURE;
-            token->node = group;
+            token->node = (pattern_t*) ret;
         }
         else if (*buf == '[') {
             if (token->min != 0 || token->max != 0) {
                 BNF_ERR("not allowed to quantify optional group []\n");
-                free(token);
-                return overspecified_quantifier;
+                RETURN_ERR(overspecified_quantifier);
             }
             // skip over this group identifier
             state->buf++;
             // optional group
-            group = make_c_pattern();
-            group->type |= PATT_ANONYMOUS;
-            ret = token_group_parse(state, &group->patt, ']');
-            if (ret != 0) {
-                free(group);
-                free(token);
-                return ret;
+            token_t *ret = token_group_parse(state, ']');
+            if (ret == NULL) {
+                PROPAGATE_ERR;
             }
             // skip over the terminating group identifier
             state->buf++;
 
             token->max = 1;
-            token->node = group;
+            token->node = (pattern_t*) ret;
         }
         else if (*buf == '(') {
             // skip over this group identifier
             state->buf++;
             // plain group
-            group = make_c_pattern();
-            group->type |= PATT_ANONYMOUS;
-            ret = token_group_parse(state, &group->patt, ')');
-            if (ret != 0) {
-                free(group);
-                free(token);
-                return ret;
+            token_t *ret = token_group_parse(state, ')');
+            if (ret == NULL) {
+                PROPAGATE_ERR;
             }
             // skip over the terminating group identifier
             state->buf++;
 
-            token->node = group;
+            token->node = (pattern_t*) ret;
         }
         else if (*buf == '"') {
             // literal
@@ -367,8 +380,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             buf = get_next_unescaped(&parsers.quote, buf);
             if (*buf == '\0') {
                 BNF_ERR("string not terminated\n");
-                free(token);
-                return open_string;
+                RETURN_ERR(open_string);
             }
             *buf = '\0';
             buf++;
@@ -381,15 +393,14 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             size_t word_len = (size_t) (buf - word) - 1;
             if (word_len == 0) {
                 BNF_ERR("string literal cannot be empty\n");
-                free(token);
-                return empty_string;
+                RETURN_ERR(empty_string);
             }
 
-            group = make_literal(word_len);
-            group->type |= PATT_ANONYMOUS;
-            memcpy(group->lit.word, word, word_len);
+            pattern_t *lit = make_literal(word_len);
+            memcpy(lit->lit.word, word, word_len);
 
-            token->node = group;
+            token->node = lit;
+            patt_ref_inc(lit);
         }
         else if (*buf == '\'') {
             // single-character literal
@@ -402,7 +413,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 // badly-formatted single-character literal
                 BNF_ERR("dangling \"'\" at end of line\n");
                 free(token);
-                return bad_single_char_lit;
+                RETURN_ERR(bad_single_char_lit);
             }
             else if (*buf == '\\') {
                 // escaped literal
@@ -410,8 +421,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 
                 if (*buf == '\0') {
                     BNF_ERR("dangling \"\\\" at end of line\n");
-                    free(token);
-                    return bad_single_char_lit;
+                    RETURN_ERR(bad_single_char_lit);
                 }
                 else if (*(buf + 1) == '\'') {
 
@@ -453,8 +463,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                         default:
                             BNF_ERR("unknown escape sequence \"\\%c\"",
                                     *buf);
-                            free(token);
-                            return bad_single_char_lit;
+                            RETURN_ERR(bad_single_char_lit);
                     }
                     // place buf just beyond the last '
                     buf += 2;
@@ -473,8 +482,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     if (!IS_HEX(*buf) || !IS_HEX(*(buf + 1))) {
                         BNF_ERR("invalid char hexcode \"\\x%c%c\"\n",
                                 *buf, *(buf + 1));
-                        free(token);
-                        return bad_single_char_lit;
+                        RETURN_ERR(bad_single_char_lit);
                     }
 
 #undef IS_HEX
@@ -491,8 +499,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 }
                 else {
                     BNF_ERR("badly formatted single-character literal\n");
-                    free(token);
-                    return bad_single_char_lit;
+                    RETURN_ERR(bad_single_char_lit);
                 }
             }
             else if (*(buf + 1) == '\'') {
@@ -501,8 +508,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
 
                 if (val == '\'') {
                     BNF_ERR("cannot have empty literal ''\n");
-                    free(token);
-                    return bad_single_char_lit;
+                    RETURN_ERR(bad_single_char_lit);
                 }
 
                 // place buf just beyond the last '
@@ -510,16 +516,15 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             }
             else {
                 BNF_ERR("badly formatted single-character literal\n");
-                free(token);
-                return bad_single_char_lit;
+                RETURN_ERR(bad_single_char_lit);
             }
             state->buf = buf;
 
-            group = make_literal(1);
-            group->type |= PATT_ANONYMOUS;
-            group->lit.word[0] = val;
+            pattern_t *lit = make_literal(1);
+            lit->lit.word[0] = val;
 
-            token->node = group;
+            token->node = lit;
+            patt_ref_inc(lit);
         }
         else {
             // check for a plain token
@@ -527,8 +532,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             buf = skip_unreserved(buf);
             if (name == buf) {
                 BNF_ERR("unexpected token \"%c\" (0x%x)\n", *buf, *buf);
-                free(token);
-                return unexpected_token;
+                RETURN_ERR(unexpected_token);
             }
 
             // update state buffer, which is assumed to hold the current
@@ -539,28 +543,24 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             size_t word_len = (size_t) (buf - name);
             // copy the name from the buffer into a malloced region pointed
             // to from the rule_list_node
-            group = make_literal(word_len);
-            group->type = TYPE_UNRESOLVED | PATT_ANONYMOUS;
-            memcpy(group->lit.word, name, word_len);
+            pattern_t *unres = make_literal(word_len);
+            unres->type = TYPE_UNRESOLVED;
+            memcpy(unres->lit.word, name, word_len);
 
-            token->node = group;
+            token->node = unres;
+            patt_ref_inc(unres);
         }
-        // under all branches, we created a new pattern_t node, so increment
-        // its reference count
-        patt_ref_inc(group);
 
         buf = state->buf;
 
         if (term_on != '\0') {
             // parenthesis, etc. allow crossing lines
-            ret = get_next_non_whitespace(state);
-            if (ret != 0) {
+            retval = get_next_non_whitespace(state);
+            if (retval != 0) {
                 // EOF reached, illegal condition
                 BNF_ERR("EOF reached while in enclosed group (either \"()\", "
                         "\"{}\" or \"[]\")\n");
-                // only safe because node is first element of token
-                pattern_free(token->node);
-                return unclosed_grouping;
+                RETURN_ERR(unclosed_grouping);
             }
             buf = state->buf;
         }
@@ -578,34 +578,34 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
 
         // check to make sure that, in an OR grouping, there is a | after the
         // token just processed (or it is the end of the line)
-        if (determined_rule_grouping) {
-            if (rule->join_type == PATTERN_MATCH_OR) {
+        if (rule_grouping != 0) {
+            if (rule_grouping == GROUP_OR) {
                 // in an or group
                 if (*buf != term_on && *buf != '\0' && *buf != '|') {
                     BNF_ERR("missing '|' between tokens in an OR grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    pattern_free(token->node);
-                    return and_or_mix;
+                    RETURN_ERR(and_or_mix);
                 }
+                // insert in list of nodes
+                pattern_or(last, token);
             }
-            else {
+            else { // GROUP_AND
                 // in an AND group, check for badly-placed '|'
                 if (*buf == '|') {
                     // found | in an AND environment
                     BNF_ERR("found '|' after tokens in an AND grouping, if "
                             "the two are to be interleaved, group with "
                             "parenthesis the ORs and ANDs separately\n");
-                    pattern_free(token->node);
-                    return and_or_mix;
+                    RETURN_ERR(and_or_mix);
                 }
+                // insert in list of nodes
+                pattern_connect(last, token);
             }
         }
         else {
             // by default, go with AND, even if there is only one token
-            rule->join_type = (*buf == '|') ? PATTERN_MATCH_OR
-                : PATTERN_MATCH_AND;
-            determined_rule_grouping = 1;
+            rule_grouping = (*buf == '|') ? GROUP_OR : GROUP_AND;
         }
         // skip over an or character if there is one
         if (*buf == '|') {
@@ -613,12 +613,14 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         }
         state->buf = buf;
 
-        // insert node into list of nodes in rule
-        pattern_insert(rule, token);
+        last = token;
+        if (ret == NULL) {
+            ret = token;
+        }
 
     } while (*buf != term_on);
 
-    return 0;
+    return ret;
 }
 
 
@@ -631,7 +633,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
  * this method returns the parsed rule on success, otherwise NULL and errno
  * is set accordingly
  */
-static pattern_t* rule_parse(parse_state *state) {
+static token_t* rule_parse(parse_state *state) {
     int ret;
 
     char *name;
@@ -682,35 +684,31 @@ static pattern_t* rule_parse(parse_state *state) {
     state->buf = buf;
     // buf is now at the start of the tokens
 
-    pattern_t *rule = make_c_pattern();
+    char* hash_name = (char*) malloc(strlen(name) + 1);
+    if (hash_name == NULL) {
+        return NULL;
+    }
+    strcpy(hash_name, name);
+
+    token_t *rule = token_group_parse(state, '\0');
     if (rule == NULL) {
+        free(hash_name);
         return NULL;
     }
 
-    char* hash_name = (char*) malloc(strlen(name) + 1);
-    if (hash_name == NULL) {
-        free(rule);
-    }
-    strcpy(hash_name, name);
     ret = hash_insert(&state->rules, hash_name, rule);
     if (ret != 0) {
         BNF_ERR("duplicate symbol %s\n", hash_name);
+        free(hash_name);
+        pattern_free(rule);
         return NULL;
     }
 
-    ret = token_group_parse(state, &rule->patt, '\0');
-    if (ret != 0) {
-        errno = ret;
-        // memory cleanup will be done outside, as rule is already in rule set
-        return NULL;
-    }
-    // increment reference count of this rule to 1
-    patt_ref_inc(rule);
     return rule;
 }
 
 
-
+/*
 
 // place bits in join_type field of c_patterns to denote when they are
 // ancestors of the current c_pattern being resolved (PROCESSING) or
@@ -752,10 +750,12 @@ static void mark_visited(c_pattern *rule) {
     }
 }
 
+*/
+
 
 /*
  * helper method for resolve_symbols
- */
+ *
 static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
 
     if (patt_type(rule) != TYPE_PATTERN) {
@@ -829,7 +829,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
     mark_visited(patt);
     return 0;
 }
-
+*/
 
 /*
  * recursively resolve symbol names, beginning from the main rule, until the
@@ -837,7 +837,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
  * be printed saying so.
  *
  * on error, -1 is returned and errno is set
- */
+ *
 static int resolve_symbols(parse_state *state) {
 
     int ret = _resolve_symbols(&state->rules, state->main_rule, 0);
@@ -868,7 +868,7 @@ static int resolve_symbols(parse_state *state) {
     return 0;
 }
 
-
+*/
 
 /*
  * go from first_literal until "until", which are all assumed to be literals,
@@ -879,7 +879,7 @@ static int resolve_symbols(parse_state *state) {
  * links the new literal struct back into the children list by resing
  * first_literal token, so we don't have to worry about linking the predecessor
  * to first_literal, and we just need to link first_literal to until
- */
+ *
 static void merge_literals(struct token *first_literal, struct token *until) {
     if (first_literal->next == until) {
         // if we are merging a single literal, we are done
@@ -921,6 +921,7 @@ static void merge_literals(struct token *first_literal, struct token *until) {
     first_literal->flags = 0;
 }
 
+*/
 
 /*
  * go from first_single_char until "until", assuming all tokens in this
@@ -930,7 +931,7 @@ static void merge_literals(struct token *first_literal, struct token *until) {
  * links the new literal struct back into the children list by resing
  * first_literal token, so we don't have to worry about linking the predecessor
  * to first_literal, and we just need to link first_literal to until
- */
+ *
 static void merge_single_chars(struct token *first_single_char,
         struct token *until) {
     if (first_single_char->next == until) {
@@ -972,10 +973,11 @@ static void merge_single_chars(struct token *first_single_char,
     first_single_char->flags = 0;
 }
 
+*/
 
 /*
  * helper method for consolidate
- */
+ *
 static int _consolidate(struct token *token) {
     if (patt_type(token->node) != TYPE_PATTERN) {
         // only consolidate patterns
@@ -1089,6 +1091,7 @@ static int _consolidate(struct token *token) {
     return 0;
 }
 
+*/
 
 /*
  * attempts to shorten the pattern tree by either merging multiple nested
@@ -1096,7 +1099,7 @@ static int _consolidate(struct token *token) {
  * into a char_class, etc.
  *
  * returns 0 on success, -1 on failure
- */
+ *
 static int consolidate(parse_state *state) {
     struct token _placeholder = {
         .node = state->main_rule,
@@ -1109,13 +1112,13 @@ static int consolidate(parse_state *state) {
     state->main_rule = _placeholder.node;
     return ret;
 }
-
+*/
 
 
 /*
  * initializes hashmap and then propagates calls to rule_parse
  */
-static pattern_t* bnf_parse(parse_state *state) {
+static token_t* bnf_parse(parse_state *state) {
     if (hash_init(&state->rules, &str_hash, &str_cmp) != 0) {
         dprintf(STDERR_FILENO, "Unable to initialize hashmap\n");
         return NULL;
@@ -1137,15 +1140,15 @@ static pattern_t* bnf_parse(parse_state *state) {
     // successfully parsed everything
     errno = 0;
 
-/*    void *k, *v;
+    void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
         printf("%s = ", (char*) k);
-        bnf_print((pattern_t*) v);
+        //bnf_print((pattern_t*) v);
         printf("\n");
-    }*/
+    }
 
     // try to recursively resolve all symbols
-    int ret = resolve_symbols(state);
+    /*int ret = resolve_symbols(state);
     if (ret != 0) {
         pattern_free(state->main_rule);
         state->main_rule = NULL;
@@ -1156,14 +1159,14 @@ static pattern_t* bnf_parse(parse_state *state) {
             pattern_free(state->main_rule);
             state->main_rule = NULL;
         }
-    }
+    }*/
 
     hash_free(&state->rules);
     return state->main_rule;
 }
 
 
-pattern_t* bnf_parsef(const char *bnf_path) {
+token_t* bnf_parsef(const char *bnf_path) {
     parse_state state = {
         .linen = 0,
         .main_rule = NULL,
@@ -1178,7 +1181,7 @@ pattern_t* bnf_parsef(const char *bnf_path) {
         return NULL;
     }
 
-    pattern_t *ret = bnf_parse(&state);
+    token_t *ret = bnf_parse(&state);
 
     if (state.file_buf != NULL) {
         free(state.file_buf);
@@ -1189,7 +1192,7 @@ pattern_t* bnf_parsef(const char *bnf_path) {
 }
 
 
-pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
+token_t* bnf_parseb(const char *buffer, size_t buf_size) {
     parse_state state = {
         .linen = 0,
         .main_rule = NULL,
@@ -1201,7 +1204,7 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
         .buf_size = buf_size
     };
 
-    pattern_t *ret = bnf_parse(&state);
+    token_t *ret = bnf_parse(&state);
 
     if (state.segment != NULL) {
         free(state.segment);
@@ -1211,8 +1214,7 @@ pattern_t* bnf_parseb(const char *buffer, size_t buf_size) {
 }
 
 
-
-static void _bnf_print(pattern_t *patt, int min, int max) {
+/*static void _bnf_print(token_t *patt, int min, int max) {
     if (min == 0 && max == 1) {
         printf("[");
     }
@@ -1244,11 +1246,11 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
             break;
         case TYPE_CC:
             printf("<");
-            /*for (unsigned char c = 0; c < NUM_CHARS; c++) {
+            for (unsigned char c = 0; c < NUM_CHARS; c++) {
                 if (cc_is_match(&patt->cc, c)) {
                     printf("%c", c);
                 }
-            }*/
+            }
             printf(">");
             break;
         case TYPE_LITERAL:
@@ -1269,10 +1271,45 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
     else if (min != 1 || max != 1) {
         printf(")");
     }
+}*/
+
+static void _bnf_print(token_t *patt, hashmap *seen) {
+    if (hash_insert(seen, patt, NULL) != 0) {
+        // already been seen
+        return;
+    }
+    printf("0x%p:\t", patt);
+    switch (patt_type(patt->node)) {
+        case TYPE_CC:
+            printf("<>");
+            break;
+        case TYPE_LITERAL:
+            printf("\"%s\"", patt->node->lit.word);
+            break;
+        case TYPE_UNRESOLVED:
+            printf("%s", patt->node->lit.word);
+            break;
+    }
+    if (patt->alt != NULL) {
+        printf(" or %p", patt->alt);
+    }
+    if (patt->next != NULL) {
+        printf(" to %p", patt->next);
+    }
+    printf("\n");
+    if (patt->alt != NULL) {
+        _bnf_print(patt->alt, seen);
+    }
+    if (patt->next != NULL) {
+        _bnf_print(patt->next, seen);
+    }
 }
 
-void bnf_print(pattern_t *patt) {
-    _bnf_print(patt, 1, 1);
+void bnf_print(token_t *patt) {
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+    _bnf_print(patt, &seen);
+    //_bnf_print(patt, 1, 1);
     printf("\n");
 }
 

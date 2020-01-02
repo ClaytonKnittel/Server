@@ -135,6 +135,7 @@ enum {
     circular_definition,
     undefined_symbol,
     duplicate_symbol,
+    memory_error,
 };
 
 /*
@@ -143,18 +144,18 @@ enum {
  * returns a dynamically allocated c_pattern struct on success and NULL
  * on failure
  */
-pattern_t* bnf_parsef(const char *bnf_path);
+token_t* bnf_parsef(const char *bnf_path);
 
 /*
  * similar to bnf_parsef, but uses an memory buffer rather than a file
  *
  * buf_size is the length of buffer in bytes
  */
-pattern_t* bnf_parseb(const char *buffer, size_t buf_size);
+token_t* bnf_parseb(const char *buffer, size_t buf_size);
 
 
 /*
  * prints the pattern in bnf form
  */
-void bnf_print(pattern_t *);
+void bnf_print(token_t *);
 

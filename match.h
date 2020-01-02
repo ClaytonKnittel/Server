@@ -13,20 +13,14 @@
 #define TYPE_MASK 0x3
 #define TYPE_CC 0
 #define TYPE_LITERAL 1
-#define TYPE_PATTERN 2
-
-// TODO determine if a patt is anonymous by seeing if its ref count is 0
-#define PATT_ANONYMOUS 0x4
+#define TYPE_TOKEN 2
 
 // first 3 bits are for type and anonymous flag, use remainder of flag for
 // reference count
 #define REF_COUNT_OFF 3
 
 // flag set for tokens which capture
-#define TOKEN_CAPTURE 0x1
-
-#define PATTERN_MATCH_AND 1
-#define PATTERN_MATCH_OR 2
+#define TOKEN_CAPTURE 0x4
 
 #define MATCH_FAIL 1
 #define MATCH_OVERFLOW 2
@@ -63,48 +57,20 @@ typedef struct literal {
 
 
 
-typedef struct c_pattern {
-    // to shadow type in pattern_t
-    int type;
-
-    // join type is one of
-    //  PATTERN_MATCH_AND: each token must be found in sequence
-    //  PATTERN_MATCH_OR: exactly one token is to be chosen, with
-    //      precedence starting from the first token
-    int join_type;
-
-    struct {
-        // singly-linked list of tokens which are all of the children
-        // of this pattern
-        struct token *first, *last;
-    };
-} c_pattern;
+typedef struct token {
+    // can either be TOKEN_CAPTURE or not (also is used by pattern_t for type)
+    int flags;
 
 
-// generic pattern node which can match to things
-typedef union pattern_node {
-    // type is either:
-    //  TYPE_CC: this is a char class
-    //  TYPE_LITERAL: matches a literal string
-    //  TYPE_PATTERN: this is a pattern
-    // and may contain flags like
-    //  PATT_ANONYMOUS: this pattern was not one of the named symbols
-    //      during compilation of bnf
-    // and the remainder of type is used for reference counting
-    int type;
+    // contents of the token to be matched against
+    // if node is null, then this token is a pass-through (noop)
+    union pattern_node *node;
 
-    char_class cc;
-    literal lit;
-    c_pattern patt;
-} pattern_t;
+    // singly-linked list of tokens in a layer, all of which are possible
+    // options for matching a given pattern
+    struct token *alt;
 
-
-struct token {
-    // node must be first member of token because of memory shortcut
-    // used in augbnf.c to free tokens
-    pattern_t *node;
-
-    // singly-linked list of tokens in a pattern
+    // pointer to token(s) which must follow this token if it is selected
     struct token *next;
 
     // quantifier determines how to match the characters
@@ -120,11 +86,25 @@ struct token {
     struct {
         int min, max;
     };
+} token_t;
 
-    // can either be TOKEN_CAPTURE or not
-    int flags;
 
-};
+// generic pattern node which can match to things
+typedef union pattern_node {
+    // type is either:
+    //  TYPE_CC: this is a char class
+    //  TYPE_LITERAL: matches a literal string
+    //  TYPE_TOKEN: matches another token
+    // and may contain flags like
+    //  PATT_ANONYMOUS: this pattern was not one of the named symbols
+    //      during compilation of bnf
+    // and the remainder of type is used for reference counting
+    int type;
+
+    char_class cc;
+    literal lit;
+    token_t token;
+} pattern_t;
 
 
 
@@ -166,18 +146,9 @@ static __inline pattern_t* make_char_class() {
 }
 
 
-static __inline pattern_t* make_c_pattern() {
-    pattern_t *patt = (pattern_t*) malloc(sizeof(c_pattern));
-    if (patt != NULL) {
-        patt->type = TYPE_PATTERN;
-        patt->patt.first = patt->patt.last = NULL;
-    }
-    return patt;
-}
-
-
-static __inline struct token* make_token() {
-    struct token *t = (struct token *) calloc(1, sizeof(struct token));
+static __inline token_t* make_token() {
+    struct token *t = (token_t *) calloc(1, sizeof(token_t));
+    t->flags = TYPE_TOKEN;
     return t;
 }
 
@@ -187,45 +158,45 @@ static __inline struct token* make_token() {
 
 /*
  * attempts to match the supplied string to the given pattern. A token will
- * continue matching until a failing condition is met, after which it either
- * proceeds to the next token (PATTERN_MATCH_AND join type) or returns
- * (PATTERN_MATCH_OR). If a token fails to match, it either returns a failed
- * match (PATTERN_MATCH_AND) or tries the next token (PATTERN_MATCH_OR)
+ * continue matching until a failing condition is met, after which it
+ * backtracks and tries matching to alternatives (or's in bnf form)
  *
  * return values:
  *  0: success
  *  MATCH_FAIL: no match found
  *  MATCH_OVERFLOW: more capturing groups were found than n_matches
  */
-int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
+int pattern_match(token_t *patt, char *buf, size_t n_matches,
         match_t matches[]);
 
 
-static __inline void pattern_insert(c_pattern *patt, struct token *token) {
-    if (patt->first == NULL) {
-        patt->first = patt->last = token;
-    }
-    else {
-        patt->last->next = token;
-        patt->last = token;
-        token->next = NULL;
-    }
-}
+
+/*
+ * recursively frees the entire pattern structure, following all links
+ * and safely freeing resources pointed to by the tokens
+ */
+void pattern_free(token_t *patt);
 
 
 /*
- * recursively frees all children of this pattern, and then frees what is
- * pointed to by patt if the ref count of patt went to 0
+ * connects patt to pattern "to", meaning each node in patt with a
+ * next pointer to NULL is set to point to "to". This is effectively
+ * saying that rule "patt" must be followed by rule "to"
+ *
+ * return 0 on success and -1 if nothing was able to be connected
  */
-void pattern_free(pattern_t *patt);
+int pattern_connect(token_t *patt, token_t *to);
+
+
+/*
+ * connects patt to pattern "opt" conditionally, so either patt may be chosen
+ * or opt may be
+ */
+int pattern_or(token_t *patt, token_t *opt);
 
 
 
 // -------------------- pattern ops --------------------
-
-static __inline int patt_anonymous(pattern_t *patt) {
-    return (patt->type & PATT_ANONYMOUS) != 0;
-}
 
 static __inline int patt_type(pattern_t *patt) {
     return patt->type & TYPE_MASK;
@@ -252,11 +223,11 @@ static __inline unsigned patt_ref_count(pattern_t *patt) {
     return ((unsigned) patt->type) >> REF_COUNT_OFF;
 }
 
-static __inline int token_type(struct token *t) {
+static __inline int token_type(token_t *t) {
     return patt_type(t->node);
 }
 
-static __inline int token_captures(struct token *t) {
+static __inline int token_captures(token_t *t) {
     return (t->flags & TOKEN_CAPTURE) != 0;
 }
 

@@ -32,198 +32,161 @@ int main() {
 
     {
         // match phone numbers
-        char_class num, dash;
-        cc_clear(&num);
-        cc_clear(&dash);
+        char_class *num, *dash;
+        num = (char_class*) make_char_class();
+        dash = (char_class*) make_char_class();
 
-        cc_allow_num(&num);
-        cc_allow(&dash, '-');
+        cc_allow_num(num);
+        cc_allow(dash, '-');
 
         struct token
             dig3 = {
-                .node = (pattern_t*) &num,
+                .node = (pattern_t*) num,
+                .alt = NULL,
                 .next = NULL,
                 .min = 4,
                 .max = 4,
                 .flags = 0
             },
             dash2 = {
-                .node = (pattern_t*) &dash,
+                .node = (pattern_t*) dash,
+                .alt = NULL,
                 .next = &dig3,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
             dig2 = {
-                .node = (pattern_t*) &num,
+                .node = (pattern_t*) num,
+                .alt = NULL,
                 .next = &dash2,
                 .min = 3,
                 .max = 3,
                 .flags = 0
             },
             dash1 = {
-                .node = (pattern_t*) &dash,
+                .node = (pattern_t*) dash,
+                .alt = NULL,
                 .next = &dig2,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
-            dig1 = {
-                .node = (pattern_t*) &num,
+            patt = {
+                .node = (pattern_t*) num,
+                .alt = NULL,
                 .next = &dash1,
                 .min = 3,
                 .max = 3,
                 .flags = 0
             };
 
-        c_pattern patt = {
-            .type = TYPE_PATTERN,
-            .join_type = PATTERN_MATCH_AND,
-            .first = &dig1,
-            .last = &dig3
-        };
-
-
-        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 0, NULL),
-                0);
-        assert(pattern_match((pattern_t*) &patt, "314.159-2653", 0, NULL),
-                MATCH_FAIL);
-        assert(pattern_match((pattern_t*) &patt, "314-159-265", 0, NULL),
-                MATCH_FAIL);
-        assert(pattern_match((pattern_t*) &patt, "314-159-26533", 0, NULL),
-                MATCH_FAIL);
-        assert(pattern_match((pattern_t*) &patt, "314-1f9-2653", 0, NULL),
-                MATCH_FAIL);
-        assert(pattern_match((pattern_t*) &patt, "3141243233", 0, NULL),
-                MATCH_FAIL);
-        assert(pattern_match((pattern_t*) &patt, "314-15-32653", 0, NULL),
-                MATCH_FAIL);
+        assert(pattern_match(&patt, "314-159-2653", 0, NULL), 0);
+        assert(pattern_match(&patt, "314.159-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(&patt, "314-159-265", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(&patt, "314-159-26533", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(&patt, "314-1f9-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(&patt, "3141243233", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(&patt, "314-15-32653", 0, NULL), MATCH_FAIL);
 
 
         // test capture groups on phone numbers
-        dig1.flags |= TOKEN_CAPTURE;
+        patt.flags |= TOKEN_CAPTURE;
         dig2.flags |= TOKEN_CAPTURE;
 
         match_t matches[2];
 
-        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 2, matches),
-                0);
+        assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
         assert(matches[0].so, 0);
         assert(matches[0].eo, 3);
         assert(matches[1].so, 4);
         assert(matches[1].eo, 7);
 
         memset(matches, 0, sizeof(matches));
-        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 1, matches),
+        assert(pattern_match(&patt, "314-159-2653", 1, matches),
                 MATCH_OVERFLOW);
         assert(matches[0].so, 0);
         assert(matches[0].eo, 3);
         assert(matches[1].so, 0);
         assert(matches[1].eo, 0);
 
-        dig1.flags &= ~TOKEN_CAPTURE;
+        patt.flags &= ~TOKEN_CAPTURE;
         dig2.flags &= ~TOKEN_CAPTURE;
         dig3.flags |= TOKEN_CAPTURE;
 
-        assert(pattern_match((pattern_t*) &patt, "314-159-2653", 2, matches),
-                0);
+        assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
         assert(matches[0].so, 8);
         assert(matches[0].eo, 12);
         assert(matches[1].so, -1);
+
+        free(num);
+        free(dash);
 
     }
 
     {
         // match emails
-        char_class unres, at;
-        struct test {
-            int type;
-            unsigned length;
-            char dom[10];
-        }
-        wu = {
-            .type = TYPE_LITERAL,
-            .length = sizeof("wustl.edu") - 1,
-            .dom = "wustl.edu"
-        },
-        um = {
-            .type = TYPE_LITERAL,
-            .length = sizeof("umich.edu") - 1,
-            .dom = "umich.edu"
-        };
+        char_class *unres, *at;
 
-        cc_clear(&unres);
-        cc_clear(&at);
+        literal *wu, *um;
 
-        cc_allow_all(&unres);
-        cc_disallow(&unres, '@');
+        wu = (literal*) make_literal(sizeof("wustl.edu") - 1);
+        memcpy(wu->word, "wustl.edu", sizeof("wustl.edu") - 1);
+        
+        um = (literal*) make_literal(sizeof("umich.edu") - 1);
+        memcpy(um->word, "umich.edu", sizeof("umich.edu") - 1);
 
-        cc_allow(&at, '@');
+        unres = (char_class*) make_char_class();
+        at = (char_class*) make_char_class();
+
+        cc_allow_all(unres);
+        cc_disallow(unres, '@');
+
+        cc_allow(at, '@');
 
         struct token
             wut = {
-                .node = (pattern_t*) &wu,
+                .node = (pattern_t*) wu,
+                .alt = NULL,
                 .next = NULL,
                 .min = 1,
                 .max = 1,
-                .flags = 0
+                .flags = TOKEN_CAPTURE
             },
             umt = {
-                .node = (pattern_t*) &um,
-                .next = &wut,
-                .min = 1,
-                .max = 1,
-                .flags = 0
-            };
-
-        c_pattern dom_pat = {
-            .type = TYPE_PATTERN,
-            .join_type = PATTERN_MATCH_OR,
-            .first = &umt,
-            .last = &wut
-        };
-
-        struct token
-            dom_patt = {
-                .node = (pattern_t*) &dom_pat,
+                .node = (pattern_t*) um,
+                .alt = &wut,
                 .next = NULL,
                 .min = 1,
                 .max = 1,
                 .flags = TOKEN_CAPTURE
             },
             att = {
-                .node = (pattern_t*) &at,
-                .next = &dom_patt,
+                .node = (pattern_t*) at,
+                .alt = NULL,
+                .next = &umt,
                 .min = 1,
                 .max = 1,
                 .flags = 0
             },
-            user = {
-                .node = (pattern_t*) &unres,
+            patt = {
+                .node = (pattern_t*) unres,
+                .alt = NULL,
                 .next = &att,
                 .min = 1,
                 .max = -1,
                 .flags = 0
             };
 
-        c_pattern patte = {
-            .type = TYPE_PATTERN,
-            .join_type = PATTERN_MATCH_AND,
-            .first = &user,
-            .last = &dom_patt
-        };
-
-        pattern_t *patt = (pattern_t*) &patte;
-
         match_t match;
 
-        assert(pattern_match(patt, "c.j.knittel@wustl.edu", 1, &match), 0);
+        assert(pattern_match(&patt, "c.j.knittel@wustl.edu", 1, &match), 0);
         assert(match.so, 12);
         assert(match.eo, 21);
-        assert(pattern_match(patt, "plknit00@umich.edu", 1, &match), 0);
+        assert(pattern_match(&patt, "plknit00@umich.edu", 1, &match), 0);
         assert(match.so, 9);
         assert(match.eo, 18);
-        assert(pattern_match(patt, "c.j.knittel@wustf.edu", 1, &match),
+        assert(pattern_match(&patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
     }
@@ -234,7 +197,7 @@ int main() {
         char bnf1[] =
             "rule1 = \"a\" \"b\" \"c\"";
 
-        pattern_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
+        token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
         bnf_print(ret);
 
@@ -267,7 +230,7 @@ int main() {
 
     // test badly formed rexeges
     {
-        pattern_t *ret;
+        token_t *ret;
         char bnf[] =
             "  abd = \"\"";
         ret = bnf_parseb(bnf, sizeof(bnf) - 1);
@@ -297,7 +260,7 @@ int main() {
 
     // test symbol resolution
     {
-        pattern_t *ret;
+        token_t *ret;
 
         char bnf[] =
             " main = rule1 \" \" rule2 \" \" rule3\n"
@@ -394,7 +357,7 @@ int main() {
 
     // test backtracking
     {
-        pattern_t *ret;
+        token_t *ret;
 
         char bnf[] =
             " rule = (\"a\" | \"ab\") 'c'";
@@ -416,7 +379,7 @@ int main() {
     {
         // URI specification
 
-        pattern_t *ret;
+        token_t *ret;
 
         ret = bnf_parsef("grammars/http_header.bnf");
         assert(errno, 0);
