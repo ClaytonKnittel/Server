@@ -848,6 +848,8 @@ static int resolve_symbols(parse_state *state) {
     // go through and check to see if there are any unused symbols
     void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
+        // each key was allocated specifically for the hashmap
+        free(k);
         pattern_t *node = (pattern_t*) v;
         if (patt_type(node) != TYPE_PATTERN) {
             // skip over non-patterns

@@ -438,7 +438,10 @@ int http_parse(struct http *p, dmsg_list *req) {
             return HTTP_ERR;
         }
     }
-    set_state(p, state);
+    //set_state(p, state);
+    set_state(p, RESPONSE);
+    set_status(p, ok);
+    printf("state then: %d\n", get_state(p));
 
     // FIXME
     return HTTP_DONE;
@@ -446,6 +449,7 @@ int http_parse(struct http *p, dmsg_list *req) {
 
 
 int http_respond(struct http *p, int fd) {
+    printf("state now: %d\n", get_state(p));
     if (get_state(p) != RESPONSE) {
         printf("http response err!\n");
         http_print(p);
@@ -454,6 +458,21 @@ int http_respond(struct http *p, int fd) {
     }
     printf("http response!\n");
     http_print(p);
+
+    char *now;
+
+    char buf[4096];
+    memcpy(buf, "HTTP/1.1 ", 9);
+    now = buf + 9;
+    strcpy(now, msgs[(unsigned) get_status(p)]);
+    now = memchr(now, '\0', 4096);
+    char msg[] =
+        "\nContent-Length: 16"
+        "\n\n"
+        "some test text!\n";
+    memcpy(now, msg, sizeof(msg) - 1);
+    write(fd, buf, ((size_t) (now - buf)) + sizeof(msg) - 1);
+
     return 0;
 }
 

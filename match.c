@@ -5,6 +5,8 @@
 #include "match.h"
 
 
+
+
 static char* _pattern_match(struct token *token, char *buf, int offset,
         size_t max_n_matches, size_t *n_matches, match_t matches[]);
 
@@ -56,6 +58,14 @@ static __inline char* _match_token_or(struct token *token, char *buf,
 }
 
 
+/*
+ * attempts to match as much of the given token as possible to the given
+ * buffer, with offset being the index of the first character in buf in the
+ * main string being matched, used only to calculate capturing group offsets
+ *
+ * returns either a pointer to the end of the region matched by token on
+ * success or NULL on failure
+ */
 static char* _pattern_match(struct token *token, char *buf, int offset,
         size_t max_n_matches, size_t *n_matches, match_t matches[]) {
 

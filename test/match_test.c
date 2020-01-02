@@ -392,6 +392,25 @@ int main() {
     }
 
 
+    // test backtracking
+    {
+        pattern_t *ret;
+
+        char bnf[] =
+            " rule = (\"a\" | \"ab\") 'c'";
+
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "abc", 0, NULL), 0);
+
+        pattern_free(ret);
+    }
+
+
     // test grammars
 
     {
