@@ -26,7 +26,7 @@ typedef literal unresolved;
 
 
 #define BNF_ERR(msg, ...) \
-    vprintf(P_RED "BNF compiler error" P_YELLOW " (line %lu): " \
+    vprintf(P_RED "BNF compiler error" P_YELLOW " (line %lu)" P_RED ": " \
             P_RESET msg, state->linen, ## __VA_ARGS__)
 
 #define BNF_ERR_NOLINE(msg, ...) \
@@ -41,9 +41,10 @@ typedef literal unresolved;
 // static globals which hold character classes used in parsing
 static struct parsers {
     char_class whitespace;
-    char_class alpha;
     char_class num;
-    char_class alphanum;
+    // number or '*'
+    char_class quantifier;
+    char_class unreserved;
     char_class quote;
 } parsers;
 
@@ -53,9 +54,19 @@ static __inline void init_parsers() {
     __builtin_memset(&parsers, 0, sizeof(struct parsers));
 
     cc_allow_whitespace(&parsers.whitespace);
-    cc_allow_alpha(&parsers.alpha);
     cc_allow_num(&parsers.num);
-    cc_allow_alphanum(&parsers.alphanum);
+
+    cc_allow_num(&parsers.quantifier);
+    cc_allow(&parsers.quantifier, '*');
+
+    cc_allow_alphanum(&parsers.unreserved);
+    cc_allow(&parsers.unreserved, '-');
+    cc_allow(&parsers.unreserved, '_');
+    cc_allow(&parsers.unreserved, '.');
+    cc_allow(&parsers.unreserved, '!');
+    cc_allow(&parsers.unreserved, '~');
+    cc_allow(&parsers.unreserved, '@');
+
     cc_allow(&parsers.quote, '"');
 }
 
@@ -75,8 +86,8 @@ static char* skip_whitespace(char* buf) {
  * same as skip_whitespace, but for alphanumeric characters (upper and
  * lowercase letters and digits)
  */
-static char* skip_alphanum(char* buf) {
-    while (cc_is_match(&parsers.alphanum, *buf)) {
+static char* skip_unreserved(char* buf) {
+    while (cc_is_match(&parsers.unreserved, *buf)) {
         buf++;
     }
     return buf;
@@ -241,17 +252,23 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         token = make_token();
 
         // search for quantifiers
-        if (cc_is_match(&parsers.num, *buf)) {
-            // expect something of the form <m>* or <m>*<n>
-            char* m = buf;
-            buf = get_next_unmatching(&parsers.num, buf);
-            if (*buf != '*') {
-                *buf = '\0';
-                BNF_ERR("quantifier %d not proceeded by '*'\n", atoi(m));
-                free(token);
-                return num_without_star;
+        if (cc_is_match(&parsers.quantifier, *buf)) {
+            // expect something of the form *, *<n>, <m>* or <m>*<n>
+            if (*buf == '*') {
+                token->min = 0;
             }
-            *buf = '\0';
+            else {
+                char* m = buf;
+                buf = get_next_unmatching(&parsers.num, buf);
+                if (*buf != '*') {
+                    *buf = '\0';
+                    BNF_ERR("quantifier %d not proceeded by '*'\n", atoi(m));
+                    free(token);
+                    return num_without_star;
+                }
+                *buf = '\0';
+                token->min = atoi(m);
+            }
             buf++;
             char* n = buf;
             buf = get_next_unmatching(&parsers.num, buf);
@@ -262,7 +279,6 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
             else {
                 token->max = atoi(n);
             }
-            token->min = atoi(m);
             if (token->min == 0 && token->max == 0) {
                 BNF_ERR("not allowed to have 0-quantity rule\n");
                 free(token);
@@ -388,15 +404,8 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                 free(token);
                 return bad_single_char_lit;
             }
-
-            if (*(buf + 1) == '\'') {
-                // unescaped single-char literal
-                val = *buf;
-
-                // place buf just beyond the last '
-                buf += 2;
-            }
             else if (*buf == '\\') {
+                // escaped literal
                 buf++;
                 
                 if (*buf == '\0') {
@@ -486,6 +495,19 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
                     return bad_single_char_lit;
                 }
             }
+            else if (*(buf + 1) == '\'') {
+                // unescaped single-char literal
+                val = *buf;
+
+                if (val == '\'') {
+                    BNF_ERR("cannot have empty literal ''\n");
+                    free(token);
+                    return bad_single_char_lit;
+                }
+
+                // place buf just beyond the last '
+                buf += 2;
+            }
             else {
                 BNF_ERR("badly formatted single-character literal\n");
                 free(token);
@@ -502,7 +524,7 @@ static int token_group_parse(parse_state *state, c_pattern *rule,
         else {
             // check for a plain token
             char* name = buf;
-            buf = get_next_unmatching(&parsers.alphanum, buf);
+            buf = skip_unreserved(buf);
             if (name == buf) {
                 BNF_ERR("unexpected token \"%c\" (0x%x)\n", *buf, *buf);
                 free(token);
@@ -634,7 +656,7 @@ static pattern_t* rule_parse(parse_state *state) {
         return NULL;
     }
     name = buf;
-    buf = skip_alphanum(name);
+    buf = skip_unreserved(name);
 
     if (*buf == '=') {
         *buf = '\0';
@@ -670,7 +692,11 @@ static pattern_t* rule_parse(parse_state *state) {
         free(rule);
     }
     strcpy(hash_name, name);
-    hash_insert(&state->rules, hash_name, rule);
+    ret = hash_insert(&state->rules, hash_name, rule);
+    if (ret != 0) {
+        BNF_ERR("duplicate symbol %s\n", hash_name);
+        return NULL;
+    }
 
     ret = token_group_parse(state, &rule->patt, '\0');
     if (ret != 0) {
@@ -730,7 +756,7 @@ static void mark_visited(c_pattern *rule) {
 /*
  * helper method for resolve_symbols
  */
-static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
+static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
 
     if (patt_type(rule) != TYPE_PATTERN) {
         // only patterns can reference other symbols
@@ -777,7 +803,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
                 return -1;
             }
 
-            int ret = _resolve_symbols(rules, res);
+            int ret = _resolve_symbols(rules, res, depth + 1);
             if (ret != 0) {
                 return ret;
             }
@@ -793,7 +819,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
         }
         else if (patt_type(child->node) == TYPE_PATTERN) {
             // if this is a pattern, must make recursive calls to resolve
-            int ret = _resolve_symbols(rules, child->node);
+            int ret = _resolve_symbols(rules, child->node, depth + 1);
             if (ret != 0) {
                 return ret;
             }
@@ -814,7 +840,7 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule) {
  */
 static int resolve_symbols(parse_state *state) {
 
-    int ret = _resolve_symbols(&state->rules, state->main_rule);
+    int ret = _resolve_symbols(&state->rules, state->main_rule, 0);
     if (ret != 0) {
         return ret;
     }
@@ -831,7 +857,7 @@ static int resolve_symbols(parse_state *state) {
         if (!is_visited(patt)) {
             // unused symbol
             BNF_WARNING("unused symbol %s\n", (char*) k);
-            pattern_free_shallow(node);
+            pattern_free(node);
         }
         else {
             clear_processing_bits(patt);
@@ -1021,6 +1047,8 @@ static int _consolidate(struct token *token) {
                 first_c = NULL;
             }
         }
+
+#undef LIT_IS_MERGEABLE
     }
 
     // if a pattern has only one child, try to elevate the child (do this after
@@ -1106,6 +1134,13 @@ static pattern_t* bnf_parse(parse_state *state) {
     }
     // successfully parsed everything
     errno = 0;
+
+/*    void *k, *v;
+    hashmap_for_each(&state->rules, k, v) {
+        printf("%s = ", (char*) k);
+        bnf_print((pattern_t*) v);
+        printf("\n");
+    }*/
 
     // try to recursively resolve all symbols
     int ret = resolve_symbols(state);
@@ -1207,11 +1242,11 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
             break;
         case TYPE_CC:
             printf("<");
-            for (unsigned char c = 0; c < NUM_CHARS; c++) {
+            /*for (unsigned char c = 0; c < NUM_CHARS; c++) {
                 if (cc_is_match(&patt->cc, c)) {
                     printf("%c", c);
                 }
-            }
+            }*/
             printf(">");
             break;
         case TYPE_LITERAL:
@@ -1219,11 +1254,11 @@ static void _bnf_print(pattern_t *patt, int min, int max) {
                 printf("'%c'", patt->lit.word[0]);
             }
             else {
-                printf("\"%*s\"", patt->lit.length, patt->lit.word);
+                printf("\"%.*s\"", patt->lit.length, patt->lit.word);
             }
             break;
         case TYPE_UNRESOLVED:
-            printf("%*s", patt->lit.length, patt->lit.word);
+            printf("%.*s", patt->lit.length, patt->lit.word);
             break;
     }
     if (min == 0 && max == 1) {

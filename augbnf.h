@@ -9,8 +9,8 @@
  *
  *  Rules are of the form
  *      Rule = tokens...
- *  and can be arbitrarily nested. Rule names must only be alphanumeric
- *  characters to avoid any ambiguity. The main defining rule of a grammar is
+ *  and can be arbitrarily nested. Rule names must only be unreserved chars
+ *  (see below) to avoid any ambiguity. The main defining rule of a grammar is
  *  the first rule, and any rules that are not referenced in some subtree of
  *  the first rule are ignored.
  *
@@ -99,6 +99,18 @@
  *  two or last two tokens
  *
  *
+ *
+ *  unreserved characters include the following:
+ *      alpha ('a' - 'z' and 'A' - 'Z')
+ *      numeric ('0' - '9')
+ *      '-'
+ *      '_'
+ *      '.'
+ *      '!'
+ *      '~'
+ *      '@'
+ *
+ *
  */
 
 #include "match.h"
@@ -122,6 +134,7 @@ enum {
     unclosed_grouping,
     circular_definition,
     undefined_symbol,
+    duplicate_symbol,
 };
 
 /*

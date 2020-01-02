@@ -286,6 +286,13 @@ int main() {
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, and_or_mix);
         assert((long) ret, (long) NULL);
+
+        char bnf4[] =
+            " main_rule = \"test\" no_rule \n"
+            " norule = \"whoops\"";
+        ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
+        assert(errno, undefined_symbol);
+        assert((long) ret, (long) NULL);
     }
 
     // test symbol resolution
@@ -313,9 +320,9 @@ int main() {
         pattern_free(ret);
 
         char bnf2[] =
-            " main = { rule1 | rule2 } \" is\" [ \" \" rule3 ]\n"
-            " rule1 = \"clayton\"\n"
-            " rule2 = \"paige\"\n"
+            " main = { rule_1 | ~rule2 } \" is\" [ \" \" rule3 ]\n"
+            " rule_1 = \"clayton\"\n"
+            " ~rule2 = \"paige\"\n"
             " rule3 = \"a baby\"";
 
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
@@ -344,14 +351,64 @@ int main() {
 
 
         char bnf3[] =
-            " hex = ('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'"
-            " | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | '\\x21')";
+            " hex = \"0x\" 1*16('0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' \n"
+            "               | '8' | '9' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f')";
 
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
 
         bnf_print(ret);
+
+        assert(pattern_match(ret, "0x1", 0, NULL), 0);
+        assert(pattern_match(ret, "0x3f", 0, NULL), 0);
+        assert(pattern_match(ret, "0xffff3c4b", 0, NULL), 0);
+        assert(pattern_match(ret, "0x1122334455667788", 0, NULL), 0);
+        assert(pattern_match(ret, "0x11223344556677889", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "0x", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "0x1q", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "0x1 f", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+
+
+        // test escape sequences
+
+        char bnf4[] =
+            " escapes = '\\x21' | '\\x3b' | '\\x5A'";
+
+        ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "!", 0, NULL), 0);
+        assert(pattern_match(ret, ";", 0, NULL), 0);
+        assert(pattern_match(ret, "Z", 0, NULL), 0);
+        assert(pattern_match(ret, "q", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+    }
+
+
+    // test grammars
+
+    {
+        // URI specification
+
+        pattern_t *ret;
+
+        ret = bnf_parsef("grammars/http_header.bnf");
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "", 0, NULL), 0);
+        assert(pattern_match(ret, "/", 0, NULL), 0);
+        assert(pattern_match(ret, "/test/path", 0, NULL), 0);
+        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
 
         pattern_free(ret);
     }

@@ -34,14 +34,9 @@ int main() {
     assert((long) hash_get(&map, str3), (long) &data3);
     assert((long) hash_get(&map, str5), (long) NULL);
 
-    assert(hash_insert(&map, str1, &data3), 0);
+    assert(hash_insert(&map, str1, &data3), HASH_ELEMENT_EXISTS);
     assert(hash_delete(&map, str1), 0);
-    assert((long) hash_get(&map, str1), (long) &data1);
-
-    /*void *k, *v;
-    hashmap_for_each(&map, k, v) {
-        printf("%s -> %lu\n", (char*) k, *(size_t*) v);
-    }*/
+    assert((long) hash_get(&map, str1), (long) NULL);
 
 #define SIZE 400
     char *bufs[SIZE];

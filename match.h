@@ -215,16 +215,10 @@ static __inline void pattern_insert(c_pattern *patt, struct token *token) {
 
 /*
  * recursively frees all children of this pattern, and then frees what is
- * pointed to by patt
+ * pointed to by patt if the ref count of patt went to 0
  */
 void pattern_free(pattern_t *patt);
 
-/*
- * only frees anonymous symbols that are children of this pattern, but does
- * not free named symbols associated with it (used to free unused symbols
- * in bnf compilation)
- */
-void pattern_free_shallow(pattern_t *patt);
 
 
 // -------------------- pattern ops --------------------

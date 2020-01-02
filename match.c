@@ -171,31 +171,14 @@ int pattern_match(pattern_t *patt, char *buf, size_t n_matches,
 
 
 void pattern_free(pattern_t *patt) {
-    switch (patt_type(patt)) {
-        case TYPE_PATTERN:
+    patt_ref_dec(patt);
+    if (patt_ref_count(patt) == 0) {
+        if (patt_type(patt) == TYPE_PATTERN) {
             for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
                 pattern_free(t->node);
             }
-        case TYPE_CC:
-        case TYPE_LITERAL:
-        default:
-            free(patt);
-    }
-}
-
-
-void pattern_free_shallow(pattern_t *patt) {
-    switch (patt_type(patt)) {
-        case TYPE_PATTERN:
-            for (struct token *t = patt->patt.first; t != NULL; t = t->next) {
-                if (patt_anonymous(t->node)) {
-                    pattern_free_shallow(t->node);
-                }
-            }
-        case TYPE_CC:
-        case TYPE_LITERAL:
-        default:
-            free(patt);
+        }
+        free(patt);
     }
 }
 
