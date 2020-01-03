@@ -443,6 +443,48 @@ int main() {
         assert(tmp_check(ret), 0);
 
         pattern_free(ret);
+
+
+        char bnf2[] =
+            " rule = 1*3('a' 'c') \"acac\"\n";
+
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
+        assert(tmp_check(ret), 0);
+
+        assert(pattern_match(ret, "acacac", 0, NULL), 0);
+        assert(pattern_match(ret, "acacacac", 0, NULL), 0);
+        assert(pattern_match(ret, "acacacacac", 0, NULL), 0);
+        assert(pattern_match(ret, "acacacacacac", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+
+
+        char bnf3[] =
+            " rule = '/' path_segments [ '#' *pchar ]\n"
+            "path_segments = segment *( '/' segment )\n"
+            "segment = *pchar\n"
+            "pchar = ( 'a' | 'b' | 'c' | 'd' | 'e' )";
+
+        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
+        assert(tmp_check(ret), 0);
+
+        assert(pattern_match(ret, "/abc", 0, NULL), 0);
+        assert(pattern_match(ret, "/abc/dea", 0, NULL), 0);
+        assert(pattern_match(ret, "/dea/", 0, NULL), 0);
+        assert(pattern_match(ret, "/", 0, NULL), 0);
+        assert(pattern_match(ret, "/abc#abc", 0, NULL), 0);
+        assert(pattern_match(ret, "/abc/dea#aad", 0, NULL), 0);
+        assert(pattern_match(ret, "/dea/#aaaaaaaaaaaaccccc", 0, NULL), 0);
+        assert(pattern_match(ret, "/#", 0, NULL), 0);
+
+        pattern_free(ret);
+
     }
 
 

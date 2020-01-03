@@ -812,8 +812,9 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         if (ret == 0) {
             // now place a deep copy of the resolved symbol in place of the
             // old symbol
-            token->node = (pattern_t*) res;
-            patt_ref_inc((pattern_t*) res);
+            token->node = (pattern_t*) pattern_deep_copy(res);
+            clear_processing_bits(&token->node->token);
+            patt_ref_inc(token->node);
             // and connect the copy back to token
             pattern_connect(&token->node->token, token);
         }
@@ -873,6 +874,9 @@ static int resolve_symbols(parse_state *state) {
         }
         else {
             clear_processing_bits(token);
+            if (token != state->main_rule) {
+                pattern_free(token);
+            }
         }
         // each key was allocated specifically for the hashmap
         free(k);

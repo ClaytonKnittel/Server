@@ -27,6 +27,10 @@ token_t* _token_deep_copy(hashmap *copied, token_t *token) {
         // and recursively copy the tokens pointed to by the token
         ret = token_cpy(token);
 
+        // and map token to the newly created copy of it before making any
+        // recursive calls
+        hash_insert(copied, token, ret);
+
         // deep copy the tokens connected to this token too
 
         if (token->alt != NULL) {
@@ -50,9 +54,6 @@ token_t* _token_deep_copy(hashmap *copied, token_t *token) {
             ret->node = token->node;
         }
         patt_ref_inc(ret->node);
-
-        // and finally map token to the newly created copy of it
-        hash_insert(copied, token, ret);
     }
     // now ret points to the (already or newly) copied token
     return ret;
