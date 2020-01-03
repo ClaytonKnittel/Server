@@ -272,7 +272,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
         // since the preceeding method modified only buf in state
         buf = state->buf;
 
-        token = make_token();
+        token = (token_t*) make_token();
         if (token == NULL) {
             errno = memory_error;
             if (ret != NULL) {
@@ -339,6 +339,9 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
             token->flags |= TOKEN_CAPTURE;
             token->node = (pattern_t*) ret;
+            patt_ref_inc((pattern_t*) ret);
+            // connect ret back to token
+            pattern_connect(ret, token);
         }
         else if (*buf == '[') {
             if (token->min != 0 || token->max != 0) {
@@ -357,6 +360,9 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
             token->max = 1;
             token->node = (pattern_t*) ret;
+            patt_ref_inc((pattern_t*) ret);
+            // connect ret back to token
+            pattern_connect(ret, token);
         }
         else if (*buf == '(') {
             // skip over this group identifier
@@ -370,6 +376,9 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             state->buf++;
 
             token->node = (pattern_t*) ret;
+            patt_ref_inc((pattern_t*) ret);
+            // connect ret back to token
+            pattern_connect(ret, token);
         }
         else if (*buf == '"') {
             // literal
@@ -708,128 +717,135 @@ static token_t* rule_parse(parse_state *state) {
 }
 
 
-/*
 
-// place bits in join_type field of c_patterns to denote when they are
-// ancestors of the current c_pattern being resolved (PROCESSING) or
+// place bits in tmp field of token_t's to denote when they are
+// ancestors of the current token_t being resolved (PROCESSING) or
 // when they have been resolved fully already (RESOLVED). This allows
 // for detection of cycles (finding a processing node as a child of
 // some other processing node) and for faster resolution (not checking
-// all children of a c_pattern if it has been resolved once)
-#define CLEAR_MASK 0x30
-#define PROCESSING 0x10
-#define VISITED    0x20
+// all children of a token_t if it has been resolved once)
+#define CLEAR_MASK 0x3
+#define PROCESSING 0x1
+#define VISITED    0x2
 
 
-static void clear_processing_bits(c_pattern *rule) {
-    rule->join_type &= ~CLEAR_MASK;
+static void clear_processing_bits(token_t *token) {
+    token->tmp &= ~CLEAR_MASK;
 }
 
-static int is_processing(c_pattern *rule) {
-    return (rule->join_type & PROCESSING) != 0;
+static int is_processing(token_t *token) {
+    return (token->tmp & PROCESSING) != 0;
 }
 
-static void mark_processing(c_pattern *rule) {
-    // we ONLY want to mark rules that are not anonymous (i.e. in the map of
-    // rules), since anonymous rules cannot be referenced by more than one
-    // other rule and because we only go back and clear the processing bits
-    // of named rules
-    if (!patt_anonymous(CPATT_TO_PATT(rule))) {
-        rule->join_type |= PROCESSING;
-    }
+static void mark_processing(token_t *token) {
+    token->tmp |= PROCESSING;
 }
 
-static int is_visited(c_pattern *rule) {
-    return (rule->join_type & VISITED) != 0;
+static int is_visited(token_t *token) {
+    return (token->tmp & VISITED) != 0;
 }
 
-static void mark_visited(c_pattern *rule) {
-    if (!patt_anonymous(CPATT_TO_PATT(rule))) {
-        rule->join_type &= ~PROCESSING;
-        rule->join_type |= VISITED;
-    }
+static void mark_visited(token_t *token) {
+    token->tmp &= ~PROCESSING;
+    token->tmp |= VISITED;
 }
 
-*/
 
+#define ANONYMOUS 1
+#define NOT_ANONYMOUS 0
 
 /*
  * helper method for resolve_symbols
  *
-static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
+ * anonymous is 1 if this symbol is not in the hashmap, meaning we should not
+ * mark it's processing bits (as they won't be reset, nor is it possible to
+ * circularly reference an anonymous symbol which is what the processing bits
+ * check for)
+ */
+static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
+        int anonymous) {
 
-    if (patt_type(rule) != TYPE_PATTERN) {
-        // only patterns can reference other symbols
-        return 0;
-    }
+    int ret = 0;
 
-    c_pattern *patt = &rule->patt;
-
-    if (is_processing(patt)) {
-        // error, cycle detected
-        BNF_ERR_NOLINE("circular symbol reference\n");
-        errno = circular_definition;
-        return -1;
-    }
-    if (is_visited(patt)) {
+    if (is_processing(token) || is_visited(token)) {
         // we have already visited this symbol, so its children have been
         // resolved
         return 0;
     }
 
-    mark_processing(patt);
-
-    for (struct token *child = patt->first; child != NULL;
-            child = child->next) {
-
-        if (patt_type(child->node) == TYPE_UNRESOLVED) {
-            // if this child is unresolved, check the list of rules for a
-            // match
-            
-            pattern_t *ch = child->node;
-            unresolved *sym = &ch->lit;
-
-            // must malloc because we need null terminator
-            char *symbol = (char*) malloc(sym->length + 1);
-            memcpy(symbol, sym->word, sym->length);
-            symbol[sym->length] = '\0';
-
-            pattern_t *res = hash_get(rules, symbol);
-
-            if (res == NULL) {
-                // if not found, this is an undefined symbol
-                BNF_ERR_NOLINE("symbol \"%s\" undefined\n", symbol);
-                errno = undefined_symbol;
-                return -1;
-            }
-
-            int ret = _resolve_symbols(rules, res, depth + 1);
-            if (ret != 0) {
-                return ret;
-            }
-
-            // now place the resolved symbol in place of the old symbol
-            child->node = res;
-
-            // increment the reference count of what we just linked to
-            patt_ref_inc(res);
-
-            // we are now done with the unresolved node, so we can free it
-            free(ch);
-        }
-        else if (patt_type(child->node) == TYPE_PATTERN) {
-            // if this is a pattern, must make recursive calls to resolve
-            int ret = _resolve_symbols(rules, child->node, depth + 1);
-            if (ret != 0) {
-                return ret;
-            }
-        }
+    if (!anonymous) {
+        mark_processing(token);
+    }
+    else {
+        // for curcular references in tokens of tokens
+        mark_visited(token);
     }
 
-    mark_visited(patt);
-    return 0;
+    if (patt_type(token->node) == TYPE_UNRESOLVED) {
+        // if this child is unresolved, check the list of rules for a
+        // match
+
+        pattern_t *unres = token->node;
+        unresolved *sym = &unres->lit;
+
+        // must malloc because we need null terminator
+        char *symbol = (char*) malloc(sym->length + 1);
+        memcpy(symbol, sym->word, sym->length);
+        symbol[sym->length] = '\0';
+
+        token_t *res = hash_get(rules, symbol);
+
+        if (res == NULL) {
+            // if not found, this is an undefined symbol
+            BNF_ERR_NOLINE("symbol \"%s\" undefined\n", symbol);
+            errno = undefined_symbol;
+            return -1;
+        }
+        if (is_processing(res)) {
+            // error, cycle detected
+            BNF_ERR_NOLINE("circular symbol reference\n");
+            errno = circular_definition;
+            return -1;
+        }
+
+        ret = _resolve_symbols(rules, res, depth + 1, NOT_ANONYMOUS);
+        if (ret == 0) {
+            // now place a deep copy of the resolved symbol in place of the
+            // old symbol
+            token->node = (pattern_t*) res;
+            patt_ref_inc((pattern_t*) res);
+            // and connect the copy back to token
+            pattern_connect(&token->node->token, token);
+        }
+
+        // increment the reference count of what we just linked to
+        // patt_ref_inc(res);
+
+        // we are now done with the unresolved node, so we can free it
+        free(unres);
+    }
+    else if (patt_type(token->node) == TYPE_TOKEN) {
+        ret = _resolve_symbols(rules, &token->node->token, depth + 1,
+                ANONYMOUS);
+    }
+
+    if (ret == 0 && token->alt != NULL) {
+        ret = _resolve_symbols(rules, token->alt, depth + 1,
+                ANONYMOUS);
+    }
+    if (ret == 0 && token->next != NULL) {
+        ret = _resolve_symbols(rules, token->next, depth + 1, ANONYMOUS);
+    }
+
+    if (!anonymous) {
+        mark_visited(token);
+    }
+    else {
+        clear_processing_bits(token);
+    }
+    return ret;
 }
-*/
+
 
 /*
  * recursively resolve symbol names, beginning from the main rule, until the
@@ -837,10 +853,11 @@ static int _resolve_symbols(hashmap *rules, pattern_t *rule, int depth) {
  * be printed saying so.
  *
  * on error, -1 is returned and errno is set
- *
+ */
 static int resolve_symbols(parse_state *state) {
 
-    int ret = _resolve_symbols(&state->rules, state->main_rule, 0);
+    int ret = _resolve_symbols(&state->rules, state->main_rule, 0,
+            NOT_ANONYMOUS);
     if (ret != 0) {
         return ret;
     }
@@ -848,27 +865,22 @@ static int resolve_symbols(parse_state *state) {
     // go through and check to see if there are any unused symbols
     void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
-        // each key was allocated specifically for the hashmap
-        free(k);
-        pattern_t *node = (pattern_t*) v;
-        if (patt_type(node) != TYPE_PATTERN) {
-            // skip over non-patterns
-            continue;
-        }
-        c_pattern *patt = &node->patt;
-        if (!is_visited(patt)) {
+        token_t *token = (token_t*) v;
+        if (!is_visited(token)) {
             // unused symbol
             BNF_WARNING("unused symbol %s\n", (char*) k);
-            pattern_free(node);
+            pattern_free(token);
         }
         else {
-            clear_processing_bits(patt);
+            clear_processing_bits(token);
         }
+        // each key was allocated specifically for the hashmap
+        free(k);
     }
     return 0;
 }
 
-*/
+
 
 /*
  * go from first_literal until "until", which are all assumed to be literals,
@@ -1148,18 +1160,18 @@ static token_t* bnf_parse(parse_state *state) {
     }
 
     // try to recursively resolve all symbols
-    /*int ret = resolve_symbols(state);
+    int ret = resolve_symbols(state);
     if (ret != 0) {
         pattern_free(state->main_rule);
         state->main_rule = NULL;
     }
     else {
-        ret = consolidate(state);
+        ret = 0;//consolidate(state);
         if (ret != 0) {
             pattern_free(state->main_rule);
             state->main_rule = NULL;
         }
-    }*/
+    }
 
     hash_free(&state->rules);
     return state->main_rule;
@@ -1273,44 +1285,73 @@ token_t* bnf_parseb(const char *buffer, size_t buf_size) {
     }
 }*/
 
+static unsigned count_;
+
 static void _bnf_print(token_t *patt, hashmap *seen) {
-    if (hash_insert(seen, patt, NULL) != 0) {
+    char *buf;
+    literal *lit;
+
+    unsigned *c = (unsigned*) malloc(sizeof(unsigned));
+    if (hash_insert(seen, patt, c) != 0) {
         // already been seen
+        free(c);
         return;
     }
-    printf("0x%p:\t", patt);
-    switch (patt_type(patt->node)) {
-        case TYPE_CC:
-            printf("<>");
-            break;
-        case TYPE_LITERAL:
-            printf("\"%s\"", patt->node->lit.word);
-            break;
-        case TYPE_UNRESOLVED:
-            printf("%s", patt->node->lit.word);
-            break;
+    *c = count_++;
+    
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        _bnf_print(&patt->node->token, seen);
     }
-    if (patt->alt != NULL) {
-        printf(" or %p", patt->alt);
-    }
-    if (patt->next != NULL) {
-        printf(" to %p", patt->next);
-    }
-    printf("\n");
     if (patt->alt != NULL) {
         _bnf_print(patt->alt, seen);
     }
     if (patt->next != NULL) {
         _bnf_print(patt->next, seen);
     }
+
+    printf("p%u: %d*%d (tmp = %d)\t", *(unsigned*) hash_get(seen, patt),
+            patt->min, patt->max, patt->tmp);
+    switch (patt_type(patt->node)) {
+        case TYPE_CC:
+            printf("<>");
+            break;
+        case TYPE_LITERAL:
+            lit = &patt->node->lit;
+            buf = (char*) malloc(lit->length + 1);
+            memcpy(buf, lit->word, lit->length);
+            buf[lit->length] = '\0';
+            printf("\"%s\"", buf);
+            free(buf);
+            break;
+        case TYPE_UNRESOLVED:
+            lit = &patt->node->lit;
+            buf = (char*) malloc(lit->length + 1);
+            memcpy(buf, lit->word, lit->length);
+            buf[lit->length] = '\0';
+            printf("%s", buf);
+            free(buf);
+            break;
+    }
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        printf("for p%u\t", *(unsigned*) hash_get(seen, &patt->node->token));
+    }
+    if (patt->alt != NULL) {
+        printf(" or p%u:\t", *(unsigned*) hash_get(seen, patt->alt));
+    }
+    if (patt->next != NULL) {
+        printf("  to p%u:\t", *(unsigned*) hash_get(seen, patt->next));
+    }
+    printf("\n");
 }
 
 void bnf_print(token_t *patt) {
+    count_ = 0;
     hashmap seen;
     hash_init(&seen, &ptr_hash, &ptr_cmp);
     _bnf_print(patt, &seen);
     //_bnf_print(patt, 1, 1);
     printf("\n");
+    hash_free(&seen);
 }
 
 

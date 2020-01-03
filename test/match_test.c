@@ -3,10 +3,53 @@
 #include <string.h>
 
 #include "../augbnf.h"
+#include "../hashmap.h"
 #include "../t_assert.h"
 #include "../match.h"
 #include "../util.h"
 #include "../vprint.h"
+
+
+
+int _tmp_check(hashmap *seen, token_t *token) {
+    if (hash_insert(seen, token, NULL) == 0) {
+        // if it wasn't seen before, check its tmp field and recurse on its
+        // children
+        if (token->tmp != 0) {
+            return -1;
+        }
+        if (patt_type(token->node) == TYPE_TOKEN) {
+            if (_tmp_check(seen, &token->node->token) != 0) {
+                return -1;
+            }
+        }
+        if (token->next != NULL) {
+            if (_tmp_check(seen, token->next) != 0) {
+                return -1;
+            }
+        }
+        if (token->alt != NULL) {
+            if (_tmp_check(seen, token->alt) != 0) {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/*
+ * checks to make sure this token and all of its descendents' tmp fields are
+ * zero
+ */
+int tmp_check(token_t *token) {
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+
+    int ret = _tmp_check(&seen, token);
+
+    hash_free(&seen);
+    return ret;
+}
 
 
 int main() {
@@ -88,6 +131,19 @@ int main() {
         assert(pattern_match(&patt, "314-1f9-2653", 0, NULL), MATCH_FAIL);
         assert(pattern_match(&patt, "3141243233", 0, NULL), MATCH_FAIL);
         assert(pattern_match(&patt, "314-15-32653", 0, NULL), MATCH_FAIL);
+
+        // test copy
+        token_t *patt2 = pattern_deep_copy(&patt);
+
+        assert(pattern_match(patt2, "314-159-2653", 0, NULL), 0);
+        assert(pattern_match(patt2, "314.159-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt2, "314-159-265", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt2, "314-159-26533", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt2, "314-1f9-2653", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt2, "3141243233", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(patt2, "314-15-32653", 0, NULL), MATCH_FAIL);
+
+        //pattern_free(patt2);
 
 
         // test capture groups on phone numbers
@@ -199,22 +255,27 @@ int main() {
 
         token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
         assert(pattern_match(ret, "ac", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "acb", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "bac", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
 
 
         char bnf2[] =
             "  abd = \"ca\" | (\"bad\") | \"ad\"";
-        
+
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "ca", 0, NULL), 0);
         assert(pattern_match(ret, "ad", 0, NULL), 0);
@@ -223,6 +284,7 @@ int main() {
         assert(pattern_match(ret, "abad", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "ada", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
 
@@ -273,11 +335,13 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
         assert(pattern_match(ret, "claytoniscool", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "clayton cool", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "clayton is coo", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
 
 
         pattern_free(ret);
@@ -291,7 +355,6 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-
         bnf_print(ret);
 
         match_t match;
@@ -320,8 +383,10 @@ int main() {
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
 
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "0x1", 0, NULL), 0);
         assert(pattern_match(ret, "0x3f", 0, NULL), 0);
@@ -331,6 +396,7 @@ int main() {
         assert(pattern_match(ret, "0x", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "0x1q", 0, NULL), MATCH_FAIL);
         assert(pattern_match(ret, "0x1 f", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
 
@@ -343,13 +409,16 @@ int main() {
         ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
 
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "!", 0, NULL), 0);
         assert(pattern_match(ret, ";", 0, NULL), 0);
         assert(pattern_match(ret, "Z", 0, NULL), 0);
         assert(pattern_match(ret, "q", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
     }
@@ -365,10 +434,13 @@ int main() {
         ret = bnf_parseb(bnf, sizeof(bnf) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
 
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
     }
@@ -384,13 +456,16 @@ int main() {
         ret = bnf_parsef("grammars/http_header.bnf");
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
 
         bnf_print(ret);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "", 0, NULL), 0);
         assert(pattern_match(ret, "/", 0, NULL), 0);
         assert(pattern_match(ret, "/test/path", 0, NULL), 0);
         assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
+        assert(tmp_check(ret), 0);
 
         pattern_free(ret);
     }

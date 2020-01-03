@@ -2,7 +2,73 @@
 #include <string.h>
 
 
+#include "hashmap.h"
 #include "match.h"
+
+
+
+/*
+ * mallocs a token and copies non-pointer fields of src into it
+ */
+static token_t* token_cpy(token_t *src) {
+    token_t *dst = (token_t*) make_token();
+    dst->flags = src->flags;
+    dst->tmp = src->tmp;
+    dst->min = src->min;
+    dst->max = src->max;
+    return dst;
+}
+
+token_t* _token_deep_copy(hashmap *copied, token_t *token) {
+    token_t *ret;
+
+    if ((ret = hash_get(copied, token)) == NULL) {
+        // if it's not in the map, we haven't copied it yet, so make a copy
+        // and recursively copy the tokens pointed to by the token
+        ret = token_cpy(token);
+
+        // deep copy the tokens connected to this token too
+
+        if (token->alt != NULL) {
+            ret->alt = _token_deep_copy(copied, token->alt);
+            patt_ref_inc((pattern_t*) ret->alt);
+        }
+
+        if (token->next != NULL) {
+            ret->next = _token_deep_copy(copied, token->next);
+            patt_ref_inc((pattern_t*) ret->next);
+        }
+
+        if (patt_type(token->node) == TYPE_TOKEN) {
+            // if this token encapsulates tokens, we need to copy those too
+            ret->node = (pattern_t*) _token_deep_copy(copied,
+                    &token->node->token);
+        }
+        else {
+            // otherwise there is no need to copy and we can just take their
+            // pointers
+            ret->node = token->node;
+        }
+        patt_ref_inc(ret->node);
+
+        // and finally map token to the newly created copy of it
+        hash_insert(copied, token, ret);
+    }
+    // now ret points to the (already or newly) copied token
+    return ret;
+}
+
+token_t* pattern_deep_copy(token_t *token) {
+    hashmap copied;
+    hash_init(&copied, &ptr_hash, &ptr_cmp);
+
+    token_t *ret = _token_deep_copy(&copied, token);
+
+    hash_free(&copied);
+    return ret;
+}
+
+
 
 // information returned by _pattern_match
 typedef union ret_info {
@@ -150,47 +216,69 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 }
 
 
-#define TOKEN_SEEN 0x8
 
-static __inline void mark_seen(token_t *token) {
-    token->flags |= TOKEN_SEEN;
-}
-
-static __inline void unmark_seen(token_t *token) {
-    token->flags &= ~TOKEN_SEEN;
-}
-
-static __inline int is_seen(token_t *token) {
-    return (token->flags & TOKEN_SEEN) != 0;
+static void _patt_free(pattern_t *patt) {
+    token_t *token;
+    if (patt_type(patt) == TYPE_TOKEN) {
+        token = &patt->token;
+        pattern_free(token);
+    }
+    else if (patt_ref_count(patt) == 0) {
+        free(patt);
+    }
 }
 
 void pattern_free(token_t *token) {
-    if (is_seen(token)) {
-        return;
-    }
-    mark_seen(token);
+    if (patt_ref_count((pattern_t*) token) == 0) {
 
-    pattern_t *patt = token->node;
-    patt_ref_dec(patt);
-    if (patt_ref_count(patt) == 0) {
-        free(patt);
+        // node is never null, so safe to free without checking
+        patt_ref_dec(token->node);
+        _patt_free(token->node);
+
+        if (token->alt != NULL) {
+            patt_ref_dec((pattern_t*) token->alt);
+            _patt_free((pattern_t*) token->alt);
+        }
+
+        if (token->next != NULL) {
+            patt_ref_dec((pattern_t*) token->next);
+            _patt_free((pattern_t*) token->next);
+        }
+
+        free(token);
     }
-    if (token->alt != NULL) {
-        pattern_free(token->alt);
-    }
-    if (token->next != NULL) {
-        pattern_free(token->next);
-    }
-    free(token);
 }
 
 
+#define SEEN 1
+
+void mark_seen(token_t *token) {
+    token->tmp |= SEEN;
+}
+
+int is_seen(token_t *token) {
+    return (token->tmp & SEEN) != 0;
+}
+
+void unmark_seen(token_t *token) {
+    token->tmp &= ~SEEN;
+}
+
+
+// TODO add double checking trap?
 int pattern_connect(token_t *patt, token_t *to) {
     int ret = -1;
+
+    if (is_seen(patt)) {
+        return ret;
+    }
+
+    mark_seen(patt);
 
     if (patt->next == NULL) {
         // we can link patt to "to"
         patt->next = to;
+        patt_ref_inc((pattern_t*) to);
         ret = 0;
     }
     else if (pattern_connect(patt->next, to) != -1) {
@@ -201,12 +289,15 @@ int pattern_connect(token_t *patt, token_t *to) {
             ret = 0;
         }
     }
+
+    unmark_seen(patt);
     return ret;
 }
 
 int pattern_or(token_t *patt, token_t *opt) {
     for (; patt->alt != NULL; patt = patt->alt);
     patt->alt = opt;
+    patt_ref_inc((pattern_t*) opt);
     return 0;
 }
 

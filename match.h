@@ -157,6 +157,13 @@ static __inline pattern_t* make_token() {
 }
 
 
+/*
+ * makes a deep copy of the token (but not of the pattern_t types other than
+ * token_t referenced by it)
+ */
+token_t* pattern_deep_copy(token_t*);
+
+
 
 // -------------------- pattern matching ops -------------------
 
