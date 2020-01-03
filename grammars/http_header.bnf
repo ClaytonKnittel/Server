@@ -1,5 +1,14 @@
 uri             = [ absolute_uri | relative_uri ] [ "#" { fragment } ]
 
+; TODO fix issue with this being on top
+; captures:
+;   1 - scheme (likely http)
+;   2 - authority
+;   3 - abs uri
+;   4 - rel uri
+;   5 - query variables
+;   6 - fragment
+
 absolute_uri    = { scheme } ':' ( heir_part | opaque_part )
 relative_uri    = ( net_path | abs_path | rel_path ) [ '?' query ]
 
@@ -10,8 +19,9 @@ uric_no_slash   = ( unreserved | escaped | ';' | '?' | ':' | '@' |
                     '&' | '=' | '+' | '$' | ',' )
 
 net_path        = "//" authority [ abs_path ]
-abs_path        = '/' path_segments
-rel_path        = rel_segment [ abs_path ]
+abs_path        = { '/' path_segments }
+abs_path_noc    = '/' path_segments
+rel_path        = { rel_segment [ abs_path_noc ] }
 
 ; this is a comment
 rel_segment     = 1*( unreserved | escaped | ; so is this

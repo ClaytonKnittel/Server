@@ -47,6 +47,8 @@ int main() {
         bufs[i][3] += i % 10;
         bufs[i][4] += i / 100;
         assert(hash_insert(&map, bufs[i], &bufs[i]), 0);
+        assert(map.size, i + 4);
+        assert((long) ((double) i / sizes[map.size_idx] <= LOAD_FACTOR), 1);
     }
     v_ensure(hash_print(&map));
 

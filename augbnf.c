@@ -70,6 +70,7 @@ static __inline void init_parsers() {
 
     cc_allow(&parsers.quote, '"');
     cc_allow_all(&parsers.all);
+    //cc_disallow(&parsers.all, '\n');
 }
 
 
@@ -675,8 +676,15 @@ static token_t* rule_parse(parse_state *state) {
             errno = ret;
             return NULL;
         }
+        printf("%d\n", ret);
         state->buf = skip_whitespace(state->buf);
-    } while (*(state->buf) == '\0' || *(state->buf) == ';');
+        if (*(state->buf) == ';') {
+            state->buf = get_next_unmatching(&parsers.all, state->buf);
+        }
+        int *a = (int*) malloc(sizeof(int));
+        *a = 2;
+        free(a);
+    } while (*(state->buf) == '\0');
 
     char *buf = state->buf;
     // buf is pointing to the beginning of the first rule

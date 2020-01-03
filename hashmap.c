@@ -226,6 +226,8 @@ int hash_delete(hashmap *map, void* k) {
     unsigned hash = map->hash_fn(k);
     size_t idx = _get_idx(hash, sizes[map->size_idx]);
 
+    map->size--;
+
     struct hash_node *node, *prev = NULL;
     for (node = map->buckets[idx].first; node != NULL
             && node->hash != hash && map->cmp_fn(node->k, k) != 0;
