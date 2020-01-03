@@ -271,14 +271,6 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
     do {
         retval = get_next_non_whitespace(state);
         if (retval != 0) {
-            if (term_on != '\0') {
-                BNF_ERR("unexpected EOF\n");
-                errno = unexpected_eof;
-                if (ret != NULL) {
-                    pattern_free(ret);
-                }
-                return NULL;
-            }
             // reached EOF
             return ret;
         }
@@ -555,8 +547,10 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             // comment: skip all characters until we reach the null terminator
             // at the end of the line
             state->buf = get_next_unmatching(&parsers.all, buf);
-            free(token);
-            continue;
+            if (rule_grouping == GROUP_OR) {
+                state->buf--;
+                *(state->buf) = '|';
+            }
         }
         else {
             // check for a plain token
@@ -610,28 +604,30 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
         // check to make sure that, in an OR grouping, there is a | after the
         // token just processed (or it is the end of the line)
-        if (rule_grouping == GROUP_OR) {
-            // in an or group
-            if (*buf != term_on /*&& *buf != '\0'*/ && *buf != '|') {
-                BNF_ERR("missing '|' between tokens in an OR grouping, if "
-                        "the two are to be interleaved, group with "
-                        "parenthesis the ORs and ANDs separately\n");
-                RETURN_ERR(and_or_mix);
+        if (rule_grouping != 0) {
+            if (rule_grouping == GROUP_OR) {
+                // in an or group
+                if (*buf != term_on && *buf != '\0' && *buf != '|') {
+                    BNF_ERR("missing '|' between tokens in an OR grouping, if "
+                            "the two are to be interleaved, group with "
+                            "parenthesis the ORs and ANDs separately\n");
+                    RETURN_ERR(and_or_mix);
+                }
+                // insert in list of nodes
+                pattern_or(last, token);
             }
-            // insert in list of nodes
-            pattern_or(last, token);
-        }
-        else if (rule_grouping == GROUP_AND) {
-            // in an AND group, check for badly-placed '|'
-            if (*buf == '|') {
-                // found | in an AND environment
-                BNF_ERR("found '|' after tokens in an AND grouping, if "
-                        "the two are to be interleaved, group with "
-                        "parenthesis the ORs and ANDs separately\n");
-                RETURN_ERR(and_or_mix);
+            else { // GROUP_AND
+                // in an AND group, check for badly-placed '|'
+                if (*buf == '|') {
+                    // found | in an AND environment
+                    BNF_ERR("found '|' after tokens in an AND grouping, if "
+                            "the two are to be interleaved, group with "
+                            "parenthesis the ORs and ANDs separately\n");
+                    RETURN_ERR(and_or_mix);
+                }
+                // insert in list of nodes
+                pattern_connect(last, token);
             }
-            // insert in list of nodes
-            pattern_connect(last, token);
         }
         else {
             // by default, go with AND, even if there is only one token

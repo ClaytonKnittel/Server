@@ -89,7 +89,8 @@ int main() {
                 .next = NULL,
                 .min = 4,
                 .max = 4,
-                .flags = 0
+                .flags = 0,
+                .match_idx = 0
             },
             dash2 = {
                 .node = (pattern_t*) dash,
@@ -105,7 +106,8 @@ int main() {
                 .next = &dash2,
                 .min = 3,
                 .max = 3,
-                .flags = 0
+                .flags = 0,
+                .match_idx = 1
             },
             dash1 = {
                 .node = (pattern_t*) dash,
@@ -121,7 +123,8 @@ int main() {
                 .next = &dash1,
                 .min = 3,
                 .max = 3,
-                .flags = 0
+                .flags = 0,
+                .match_idx = 0
             };
 
         assert(pattern_match(&patt, "314-159-2653", 0, NULL), 0);
@@ -151,6 +154,7 @@ int main() {
         dig2.flags |= TOKEN_CAPTURE;
 
         match_t matches[2];
+        memset(matches, 0, sizeof(matches));
 
         assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
         assert(matches[0].so, 0);
@@ -159,8 +163,7 @@ int main() {
         assert(matches[1].eo, 7);
 
         memset(matches, 0, sizeof(matches));
-        assert(pattern_match(&patt, "314-159-2653", 1, matches),
-                MATCH_OVERFLOW);
+        assert(pattern_match(&patt, "314-159-2653", 1, matches), 0);
         assert(matches[0].so, 0);
         assert(matches[0].eo, 3);
         assert(matches[1].so, 0);
@@ -170,6 +173,7 @@ int main() {
         dig2.flags &= ~TOKEN_CAPTURE;
         dig3.flags |= TOKEN_CAPTURE;
 
+        memset(matches, 0, sizeof(matches));
         assert(pattern_match(&patt, "314-159-2653", 2, matches), 0);
         assert(matches[0].so, 8);
         assert(matches[0].eo, 12);
@@ -487,6 +491,41 @@ int main() {
 
     }
 
+    // capturing groups again
+    {
+        token_t *ret;
+
+        char bnf2[] =
+            " main = { 1*alpha } ':' [ rule1 ]\n"
+            " rule1 = { 2*alpha } \n"
+            " alpha = ( 'a' | 'b' | 'c' | 'd' | ; comment !\n"
+                        "'e' | 'f' | 'g' )\n";
+
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        bnf_print(ret);
+
+        match_t matches[2];
+
+        assert(pattern_match(ret, "abc:def", 2, &matches[0]), 0);
+        assert(matches[0].so, 0);
+        assert(matches[0].eo, 3);
+        assert(matches[1].so, 4);
+        assert(matches[1].eo, 7);
+        assert(pattern_match(ret, "a:deg", 2, &matches[0]), 0);
+        assert(matches[0].so, 0);
+        assert(matches[0].eo, 1);
+        assert(matches[1].so, 2);
+        assert(matches[1].eo, 5);
+        assert(pattern_match(ret, "abcd:defu", 2, &matches[0]), MATCH_FAIL);
+        assert(pattern_match(ret, "a:", 2, &matches[0]), 0);
+        assert(matches[0].so, 0);
+        assert(matches[0].eo, 1);
+        assert(matches[1].so, -1);
+
+    }
+
 
     // test grammars
 
@@ -500,12 +539,15 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
+        //bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "", 0, NULL), 0);
         assert(pattern_match(ret, "/", 0, NULL), 0);
         assert(pattern_match(ret, "/test/path", 0, NULL), 0);
+        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
+        assert(pattern_match(ret, "http://www.ics.uci.edu/pub/ietf/uri/#Related", 0, NULL), 0);
+        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
         assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
         assert(tmp_check(ret), 0);
 

@@ -23,8 +23,8 @@
 // flag set for tokens which capture
 #define TOKEN_CAPTURE 0x4
 
+// failure codes
 #define MATCH_FAIL 1
-#define MATCH_OVERFLOW 2
 
 // char codes 0-255
 #define NUM_CHARS 128
@@ -62,8 +62,8 @@ typedef struct token {
     // can either be TOKEN_CAPTURE or not (also is used by pattern_t for type)
     int flags;
 
-    // can be used by algorithms for temporary data storage, but should always
-    // be 0 outside any method call
+    // lowest 3 bits can be used by algorithms for temporary data storage, but
+    // should always be 0 outside any method call
     int tmp;
 
     // contents of the token to be matched against
@@ -91,6 +91,12 @@ typedef struct token {
     struct {
         int min, max;
     };
+
+    // only defined in capturing groups, indicates the index into the matches
+    // list that this token should write to. It is defined as the order in
+    // which the capturing tokens are parsed, i.e. the order they are written
+    // in the bnf expression
+    unsigned match_idx;
 
 } token_t;
 
@@ -151,8 +157,14 @@ static __inline pattern_t* make_char_class() {
 }
 
 static __inline pattern_t* make_token() {
-    pattern_t *t = (pattern_t *) calloc(1, sizeof(token_t));
+    pattern_t *t = (pattern_t *) calloc(1, sizeof(token_t) - 8);
     t->type = TYPE_TOKEN;
+    return t;
+}
+
+static __inline pattern_t* make_capturing_token() {
+    pattern_t *t = (pattern_t *) calloc(1, sizeof(token_t));
+    t->type = TYPE_TOKEN | TOKEN_CAPTURE;
     return t;
 }
 

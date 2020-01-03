@@ -78,7 +78,11 @@
  *
  *      Rule5 = "a" {"b"} "c"
  *
- *  would match "abc", and "b" would be the only captured group returned
+ *  would match "abc", and "b" would be the only captured group returned. The
+ *  order in which the capturing groups are declared in the file they are
+ *  written in indicates their indices in the list of matches, and thus a
+ *  single capturing rule that is used in multiple places can capture at most
+ *  one substring
  *
  *
  *  Parenthesis can be used to group tokens without needing to create separate
@@ -132,6 +136,7 @@ enum {
     empty_string,
     bad_single_char_lit,
     unclosed_grouping,
+    unexpected_eof,
     circular_definition,
     undefined_symbol,
     duplicate_symbol,
