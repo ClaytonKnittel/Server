@@ -13,6 +13,7 @@
 #define TYPE_MASK 0x3
 #define TYPE_CC 0
 #define TYPE_LITERAL 1
+// always matches nothing successfully
 #define TYPE_TOKEN 2
 
 // first 3 bits are for type and anonymous flag, use remainder of flag for
@@ -61,16 +62,20 @@ typedef struct token {
     // can either be TOKEN_CAPTURE or not (also is used by pattern_t for type)
     int flags;
 
+    // can be used by algorithms for temporary data storage, but should always
+    // be 0 outside any method call
+    int tmp;
 
     // contents of the token to be matched against
     // if node is null, then this token is a pass-through (noop)
     union pattern_node *node;
 
-    // singly-linked list of tokens in a layer, all of which are possible
-    // options for matching a given pattern
+    // singly-linked list of tokens in a layer, all of which are
+    // possible options for matching a given pattern
     struct token *alt;
 
-    // pointer to token(s) which must follow this token if it is selected
+    // pointer to token(s) which must follow this token if it is
+    // selected
     struct token *next;
 
     // quantifier determines how to match the characters
@@ -86,6 +91,7 @@ typedef struct token {
     struct {
         int min, max;
     };
+
 } token_t;
 
 
@@ -94,7 +100,6 @@ typedef union pattern_node {
     // type is either:
     //  TYPE_CC: this is a char class
     //  TYPE_LITERAL: matches a literal string
-    //  TYPE_TOKEN: matches another token
     // and may contain flags like
     //  PATT_ANONYMOUS: this pattern was not one of the named symbols
     //      during compilation of bnf
@@ -145,10 +150,9 @@ static __inline pattern_t* make_char_class() {
     return patt;
 }
 
-
-static __inline token_t* make_token() {
-    struct token *t = (token_t *) calloc(1, sizeof(token_t));
-    t->flags = TYPE_TOKEN;
+static __inline pattern_t* make_token() {
+    pattern_t *t = (pattern_t *) calloc(1, sizeof(token_t));
+    t->type = TYPE_TOKEN;
     return t;
 }
 
