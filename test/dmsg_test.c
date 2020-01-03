@@ -53,6 +53,9 @@ static void test_write_read(dmsg_list *list) {
 
     assert(strcmp(buf, buf2), 0);
 
+    free(buf2);
+    free(buf);
+
     close(fd);
 #ifndef O_TMPFILE
     unlink(TMP_NAME);
@@ -84,6 +87,7 @@ int main() {
 
         assert(dmsg_init2(&list, 4), 0);
         v_ensure(dmsg_print(&list, STDERR_FILENO));
+
 
         assert(list.len, 0);
         assert(list.list_size, 1);
@@ -170,6 +174,8 @@ int main() {
         test_write_read(&list);
 
         dmsg_free(&list);
+
+        free(msg);
 #undef SIZE
     }
 
@@ -363,6 +369,8 @@ int main() {
             assert(strcmp(buf, ""), 0);
             assert(dmsg_getline(&list, buf, sizeof(buf)), 0);
             assert(errno, DMSG_NO_NEWLINE);
+
+            dmsg_free(&list);
         }
 
 

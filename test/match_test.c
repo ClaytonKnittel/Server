@@ -84,6 +84,8 @@ int main() {
 
         struct token
             dig3 = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) num,
                 .alt = NULL,
                 .next = NULL,
@@ -93,6 +95,8 @@ int main() {
                 .match_idx = 0
             },
             dash2 = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) dash,
                 .alt = NULL,
                 .next = &dig3,
@@ -101,6 +105,8 @@ int main() {
                 .flags = 0
             },
             dig2 = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) num,
                 .alt = NULL,
                 .next = &dash2,
@@ -110,6 +116,8 @@ int main() {
                 .match_idx = 1
             },
             dash1 = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) dash,
                 .alt = NULL,
                 .next = &dig2,
@@ -118,6 +126,8 @@ int main() {
                 .flags = 0
             },
             patt = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) num,
                 .alt = NULL,
                 .next = &dash1,
@@ -126,6 +136,8 @@ int main() {
                 .flags = 0,
                 .match_idx = 0
             };
+        patt_ref_inc((pattern_t*) num);
+        patt_ref_inc((pattern_t*) dash);
 
         assert(pattern_match(&patt, "314-159-2653", 0, NULL), 0);
         assert(pattern_match(&patt, "314.159-2653", 0, NULL), MATCH_FAIL);
@@ -146,7 +158,7 @@ int main() {
         assert(pattern_match(patt2, "3141243233", 0, NULL), MATCH_FAIL);
         assert(pattern_match(patt2, "314-15-32653", 0, NULL), MATCH_FAIL);
 
-        //pattern_free(patt2);
+        pattern_free(patt2);
 
 
         // test capture groups on phone numbers
@@ -206,6 +218,8 @@ int main() {
 
         struct token
             wut = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) wu,
                 .alt = NULL,
                 .next = NULL,
@@ -214,6 +228,8 @@ int main() {
                 .flags = TOKEN_CAPTURE
             },
             umt = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) um,
                 .alt = &wut,
                 .next = NULL,
@@ -222,6 +238,8 @@ int main() {
                 .flags = TOKEN_CAPTURE
             },
             att = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) at,
                 .alt = NULL,
                 .next = &umt,
@@ -230,6 +248,8 @@ int main() {
                 .flags = 0
             },
             patt = {
+                .flags = TYPE_TOKEN,
+                .tmp = 0,
                 .node = (pattern_t*) unres,
                 .alt = NULL,
                 .next = &att,
@@ -249,8 +269,11 @@ int main() {
         assert(pattern_match(&patt, "c.j.knittel@wustf.edu", 1, &match),
                 MATCH_FAIL);
 
+        free(wu);
+        free(um);
+        free(unres);
+        free(at);
     }
-
 
     // try compiling bnf's
     {
@@ -294,6 +317,8 @@ int main() {
 
     }
 
+
+    exit(0);
     // test badly formed rexeges
     {
         token_t *ret;
@@ -529,6 +554,7 @@ int main() {
 
     // test grammars
 
+    exit(0);
     {
         // URI specification
 

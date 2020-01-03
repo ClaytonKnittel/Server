@@ -19,6 +19,7 @@
 // first 3 bits are for type and anonymous flag, use remainder of flag for
 // reference count
 #define REF_COUNT_OFF 3
+#define REF_COUNT_MASK ((1U << REF_COUNT_OFF) - 1)
 
 // flag set for tokens which capture
 #define TOKEN_CAPTURE 0x4

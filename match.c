@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,7 +20,6 @@ static token_t* token_cpy(token_t *src) {
     else {
         dst = (token_t*) make_token();
     }
-    dst->flags = src->flags;
     dst->tmp = src->tmp;
     dst->min = src->min;
     dst->max = src->max;
@@ -201,6 +201,7 @@ static void _patt_free(pattern_t *patt) {
         pattern_free(token);
     }
     else if (patt_ref_count(patt) == 0) {
+        printf("not token\n");
         free(patt);
     }
 }

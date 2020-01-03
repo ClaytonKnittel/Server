@@ -48,7 +48,7 @@ int dmsg_init2(dmsg_list *list, unsigned int init_node_size) {
 }
 
 void dmsg_free(dmsg_list *list) {
-    for (unsigned int i = 0; i < list->list_size; i++) {
+    for (unsigned int i = 0; i < list->alloc_size; i++) {
         free(list->list[i].msg);
     }
 }

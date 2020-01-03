@@ -163,6 +163,7 @@ static int _hash_grow(hashmap *map) {
             n = nex;
         }
     }
+    free(oldbs);
 
     map->load_limit = ceil(sizes[map->size_idx] * LOAD_FACTOR);
     return 0;
@@ -181,6 +182,7 @@ int hash_insert(hashmap *map, void* k, void* v) {
     node->hash = map->hash_fn(k);
 
     if (_hash_inserter(map, node) != 0) {
+        free(node);
         return HASH_ELEMENT_EXISTS;
     }
     map->size++;
