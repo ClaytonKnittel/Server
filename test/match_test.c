@@ -92,7 +92,6 @@ int main() {
                 .next = NULL,
                 .min = 4,
                 .max = 4,
-                .flags = 0,
                 .match_idx = 0
             },
             dash2 = {
@@ -102,8 +101,7 @@ int main() {
                 .alt = NULL,
                 .next = &dig3,
                 .min = 1,
-                .max = 1,
-                .flags = 0
+                .max = 1
             },
             dig2 = {
                 .flags = TYPE_TOKEN,
@@ -113,7 +111,6 @@ int main() {
                 .next = &dash2,
                 .min = 3,
                 .max = 3,
-                .flags = 0,
                 .match_idx = 1
             },
             dash1 = {
@@ -123,8 +120,7 @@ int main() {
                 .alt = NULL,
                 .next = &dig2,
                 .min = 1,
-                .max = 1,
-                .flags = 0
+                .max = 1
             },
             patt = {
                 .flags = TYPE_TOKEN,
@@ -134,7 +130,6 @@ int main() {
                 .next = &dash1,
                 .min = 3,
                 .max = 3,
-                .flags = 0,
                 .match_idx = 0
             };
         patt_ref_inc((pattern_t*) num);
@@ -219,24 +214,22 @@ int main() {
 
         struct token
             wut = {
-                .flags = TYPE_TOKEN,
+                .flags = TYPE_TOKEN | TOKEN_CAPTURE,
                 .tmp = 0,
                 .node = (pattern_t*) wu,
                 .alt = NULL,
                 .next = NULL,
                 .min = 1,
-                .max = 1,
-                .flags = TOKEN_CAPTURE
+                .max = 1
             },
             umt = {
-                .flags = TYPE_TOKEN,
+                .flags = TYPE_TOKEN | TOKEN_CAPTURE,
                 .tmp = 0,
                 .node = (pattern_t*) um,
                 .alt = &wut,
                 .next = NULL,
                 .min = 1,
                 .max = 1,
-                .flags = TOKEN_CAPTURE
             },
             att = {
                 .flags = TYPE_TOKEN,
@@ -245,8 +238,7 @@ int main() {
                 .alt = NULL,
                 .next = &umt,
                 .min = 1,
-                .max = 1,
-                .flags = 0
+                .max = 1
             },
             patt = {
                 .flags = TYPE_TOKEN,
@@ -255,8 +247,7 @@ int main() {
                 .alt = NULL,
                 .next = &att,
                 .min = 1,
-                .max = -1,
-                .flags = 0
+                .max = -1
             };
 
         match_t match;
