@@ -675,7 +675,6 @@ static token_t* rule_parse(parse_state *state) {
             errno = ret;
             return NULL;
         }
-        printf("%d\n", ret);
         state->buf = skip_whitespace(state->buf);
         if (*(state->buf) == ';') {
             state->buf = get_next_unmatching(&parsers.all, state->buf);
@@ -1406,13 +1405,9 @@ void bnf_print(token_t *patt) {
 
     void *k;
     unsigned *count;
-    unsigned c = 0;
     hashmap_for_each(&seen, k, count) {
-        printf("jst freed %u\n", *count);
         free(count);
-        c++;
     }
-    printf("c = %u\ncount_ = %u\n", c, count_);
     hash_free(&seen);
 }
 

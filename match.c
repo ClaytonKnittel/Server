@@ -205,19 +205,16 @@ void _pattern_free(hashmap *seen, pattern_t *patt) {
             if (token->node != NULL) {
                 // TODO node is never null for fully constructed FSMs
                 patt_ref_dec(token->node);
-                printf("node %p to %d\n", token->node, patt_ref_count(token->node));
                 _pattern_free(seen, token->node);
             }
 
             if (token->alt != NULL) {
                 patt_ref_dec((pattern_t*) token->alt);
-                printf("alt  %p to %d\n", token->alt, patt_ref_count((pattern_t*) token->alt));
                 _pattern_free(seen, (pattern_t*) token->alt);
             }
 
             if (token->next != NULL) {
                 patt_ref_dec((pattern_t*) token->next);
-                printf("next %p to %d\n", token->next, patt_ref_count((pattern_t*) token->next));
                 _pattern_free(seen, (pattern_t*) token->next);
             }
 
@@ -227,7 +224,6 @@ void _pattern_free(hashmap *seen, pattern_t *patt) {
         }
     }
     else if (patt_ref_count(patt) == 0) {
-        printf("not token\n");
         free(patt);
     }
 }

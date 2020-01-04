@@ -53,6 +53,7 @@ int tmp_check(token_t *token) {
 
 
 int main() {
+
     //silence_stdout();
     char_class m;
 
@@ -514,7 +515,6 @@ int main() {
 
     }
 
-
     // capturing groups again
     {
         token_t *ret;
@@ -547,13 +547,14 @@ int main() {
         assert(matches[0].so, 0);
         assert(matches[0].eo, 1);
         assert(matches[1].so, -1);
+        
+        pattern_free(ret);
 
     }
 
 
     // test grammars
 
-    exit(0);
     {
         // URI specification
 
@@ -564,7 +565,7 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        //bnf_print(ret);
+        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "", 0, NULL), 0);

@@ -159,8 +159,6 @@ static __inline pattern_t* make_char_class() {
 
 #include <stdio.h>
 static __inline pattern_t* make_token() {
-    static int count = 0;
-    printf("now %d\n", ++count);
     pattern_t *t = (pattern_t *) calloc(1, sizeof(token_t)/* - 8*/);
     t->type = TYPE_TOKEN;
     return t;
