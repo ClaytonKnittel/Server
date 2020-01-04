@@ -853,7 +853,10 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         pattern_connect(&token->node->token, token);
 
         // we are now done with the unresolved node, so we can free it
-        free(unres);
+        patt_ref_dec(unres);
+        if (patt_ref_count(unres) == 0) {
+            free(unres);
+        }
     }
     if (patt_type(token->node) == TYPE_TOKEN) {
         ret = _resolve_symbols(rules, &token->node->token, depth + 1,
