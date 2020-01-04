@@ -47,6 +47,9 @@ struct hash_node* find_next(hashmap *map, struct hash_node* prev,
     if (prev != NULL) {
         prev = prev->next;
     }
+    else {
+        prev = map->buckets[0].first;
+    }
     while (prev == NULL) {
         if (++(*bucket_idx) >= sizes[map->size_idx]) {
             break;

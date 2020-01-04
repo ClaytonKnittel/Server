@@ -371,7 +371,6 @@ int main() {
         assert(tmp_check(ret), 0);
 
 
-    exit(0);
         pattern_free(ret);
 
         char bnf2[] =
@@ -452,8 +451,6 @@ int main() {
     }
 
 
-    exit(0);
-
     // test backtracking
     {
         token_t *ret;
@@ -516,6 +513,7 @@ int main() {
         pattern_free(ret);
 
     }
+
 
     // capturing groups again
     {
