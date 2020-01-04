@@ -308,37 +308,6 @@ int main() {
 
     }
 
-
-    // test badly formed rexeges
-    {
-        token_t *ret;
-        char bnf[] =
-            "  abd = \"\"";
-        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
-        assert(errno, empty_string);
-        assert((long) ret, (long) NULL);
-
-        char bnf2[] =
-            "  abd = \" fa";
-        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
-        assert(errno, open_string);
-        assert((long) ret, (long) NULL);
-    
-        char bnf3[] =
-            "  abd = \" ab\" ( more |  \n"
-            " words  ) | \" help\"";
-        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
-        assert(errno, and_or_mix);
-        assert((long) ret, (long) NULL);
-    
-        char bnf4[] =
-            " main_rule = \"test\" no_rule \n"
-            " norule = \"whoops\"";
-        ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
-        assert(errno, undefined_symbol);
-        assert((long) ret, (long) NULL);
-    }
-
     // test symbol resolution
     {
         token_t *ret;
@@ -440,6 +409,48 @@ int main() {
         assert(tmp_check(ret), 0);
 
         pattern_free(ret);
+    }
+
+
+
+    // test badly formed rexeges
+    {
+        token_t *ret;
+        char bnf[] =
+            "  abd = \"\"";
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, empty_string);
+        assert((long) ret, (long) NULL);
+
+        char bnf2[] =
+            "  abd = \" fa";
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, open_string);
+        assert((long) ret, (long) NULL);
+    
+        char bnf3[] =
+            "  abd = \" ab\" ( more |  \n"
+            " words  ) | \" help\"";
+        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
+        assert(errno, and_or_mix);
+        assert((long) ret, (long) NULL);
+    
+        char bnf4[] =
+            " main_rule = \"test\" no_rule \n"
+            " norule = \"whoops\"";
+        ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
+        assert(errno, undefined_symbol);
+        assert((long) ret, (long) NULL);
+
+        //" main = ( \"ab\" ( \"ef\" (\"cd\" test1 ) ) ) | test2"
+        char bnf5[] =
+            "main = test1 | test2\n"
+            "test1 = \"ab\" test3\n"
+            "test2 = \"cd\" test1\n"
+            "test3 = \"ef\" test2";
+        ret = bnf_parseb(bnf5, sizeof(bnf5) - 1);
+        assert(errno, circular_definition);
+        assert((long) ret, (long) NULL);
     }
 
 

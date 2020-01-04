@@ -766,6 +766,7 @@ static int is_processing(token_t *token) {
 }
 
 static void mark_processing(token_t *token) {
+    token->tmp &= ~VISITED;
     token->tmp |= PROCESSING;
 }
 
@@ -809,6 +810,10 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         mark_visited(token);
     }
 
+    // a resolved symbol, if node is TYPE_UNRESOLVED (so that it may be marked
+    // as complete after recursing into node)
+    token_t *res = NULL;
+
     if (patt_type(token->node) == TYPE_UNRESOLVED) {
         // if this child is unresolved, check the list of rules for a
         // match
@@ -821,11 +826,7 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         memcpy(symbol, sym->word, sym->length);
         symbol[sym->length] = '\0';
 
-        // we are now done with the unresolved node, so we can free it
-        free(unres);
-        token->node = NULL;
-
-        token_t *res = hash_get(rules, symbol);
+        res = hash_get(rules, symbol);
 
         if (res == NULL) {
             // if not found, this is an undefined symbol
@@ -842,24 +843,24 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
             errno = circular_definition;
             return -1;
         }
+        mark_processing(res);
 
-        ret = _resolve_symbols(rules, res, depth + 1, NOT_ANONYMOUS);
-        if (ret == 0) {
-            // now place a deep copy of the resolved symbol in place of the
-            // old symbol
-            token->node = (pattern_t*) pattern_deep_copy(res);
-            clear_processing_bits(&token->node->token);
-            patt_ref_inc(token->node);
-            // and connect the copy back to token
-            pattern_connect(&token->node->token, token);
-        }
+        // place a copy of the symbol in place of the reference    
+        token->node = (pattern_t*) pattern_deep_copy(res);
+        clear_processing_bits(&token->node->token);
+        patt_ref_inc(token->node);
+        // and connect the copy back to token
+        pattern_connect(&token->node->token, token);
 
-        // increment the reference count of what we just linked to
-        // patt_ref_inc(res);
+        // we are now done with the unresolved node, so we can free it
+        free(unres);
     }
-    else if (patt_type(token->node) == TYPE_TOKEN) {
+    if (patt_type(token->node) == TYPE_TOKEN) {
         ret = _resolve_symbols(rules, &token->node->token, depth + 1,
                 ANONYMOUS);
+    }
+    if (res != NULL) {
+        mark_visited(res);
     }
 
     if (ret == 0 && token->alt != NULL) {
