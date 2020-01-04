@@ -126,6 +126,8 @@ typedef struct parse_state {
             // the file, which must not be modified outside of getline for
             // proper memory cleanup
             char *file_buf;
+            // size of file_buf, used in repeat calls to getline
+            size_t line_size;
         };
         struct {
             // pointer to user-given memory
@@ -142,11 +144,10 @@ typedef struct parse_state {
 
 
 static int read_line(parse_state *state) {
-    size_t line_size;
     int ret;
 
     if (state->read_from == PARSING_FILE) {
-        ret = getline(&state->file_buf, &line_size, state->file);
+        ret = getline(&state->file_buf, &state->line_size, state->file);
         if (ret == -1) {
             // EOF
             return eof;
@@ -1195,12 +1196,12 @@ static token_t* bnf_parse(parse_state *state) {
     // successfully parsed everything
     errno = 0;
 
-    void *k, *v;
+    /*void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
         printf("%s = ", (char*) k);
         bnf_print(v);
         printf("\n");
-    }
+    }*/
 
     // try to recursively resolve all symbols
     int ret = resolve_symbols(state);
@@ -1227,7 +1228,9 @@ token_t* bnf_parsef(const char *bnf_path) {
         .main_rule = NULL,
         .buf = NULL,
         .read_from = PARSING_FILE,
-        .n_captures = 0
+        .n_captures = 0,
+        .file_buf = NULL,
+        .line_size = 0
     };
 
     state.file = fopen(bnf_path, "r");

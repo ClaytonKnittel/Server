@@ -519,7 +519,7 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        bnf_print(ret);
+        //bnf_print(ret);
 
         match_t matches[2];
 
@@ -543,6 +543,25 @@ int main() {
 
     }
 
+    // test reading from file
+    {
+        token_t *ret;
+
+        ret = bnf_parsef("grammars/test.bnf");
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+
+        bnf_print(ret);
+        assert(tmp_check(ret), 0);
+
+        assert(pattern_match(ret, "hello b", 0, NULL), 0);
+        assert(pattern_match(ret, "goodbye c", 0, NULL), 0);
+        assert(pattern_match(ret, "hello ab", 0, NULL), MATCH_FAIL);
+
+        pattern_free(ret);
+
+    }
 
     // test grammars
 
@@ -556,7 +575,7 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
+        //bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "", 0, NULL), 0);
