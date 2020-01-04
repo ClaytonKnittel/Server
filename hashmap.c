@@ -8,8 +8,7 @@
 
 
 
-unsigned str_hash(void* v_str) {
-    char* str = (char*) v_str;
+unsigned str_hash(const char* str) {
     const unsigned p = 53;
     unsigned hash = 0;
 
@@ -20,23 +19,20 @@ unsigned str_hash(void* v_str) {
     return hash;
 }
 
-int str_cmp(void* v_str1, void* v_str2) {
-    char* str1 = (char*) v_str1;
-    char* str2 = (char*) v_str2;
-
+int str_cmp(const char* str1, const char* str2) {
     for (; *str1 != '\0' && *str2 != '\0' && *str1 == *str2; str1++, str2++);
     return (*str1 == *str2) ? 0 : 1;
 }
 
 
 
-unsigned ptr_hash(void* ptr) {
+unsigned ptr_hash(const void* ptr) {
     unsigned l = (unsigned) (((size_t) ptr) & 0xffffffff);
     unsigned h = (unsigned) ((((size_t) ptr) >> 32) & 0xffffffff);
     return l ^ h;
 }
 
-int ptr_cmp(void* ptr1, void* ptr2) {
+int ptr_cmp(const void* ptr1, const void* ptr2) {
     return (ptr1 == ptr2) ? 0 : 1;
 }
 
@@ -63,8 +59,8 @@ struct hash_node* find_next(hashmap *map, struct hash_node* prev,
 
 
 
-int hash_init(hashmap *map, unsigned (*hash_fn) (void*),
-        int (*cmp_fn) (void*, void*)) {
+int hash_init(hashmap *map, unsigned (*hash_fn) (const void*),
+        int (*cmp_fn) (const void*, const void*)) {
 
     size_t malloc_size = sizes[0] * sizeof(struct hash_bucket);
     map->buckets = (struct hash_bucket*) malloc(malloc_size);
@@ -202,7 +198,7 @@ int hash_insert(hashmap *map, void* k, void* v) {
  * finds the hash_node struct containing the given key, or NULL if the key
  * is not in the map
  */
-static struct hash_node *_hash_find(hashmap *map, void *k) {
+static struct hash_node *_hash_find(hashmap *map, const void *k) {
     unsigned hash = map->hash_fn(k);
     size_t idx = _get_idx(hash, sizes[map->size_idx]);
 
@@ -215,7 +211,7 @@ static struct hash_node *_hash_find(hashmap *map, void *k) {
 }
 
 
-int hash_remap(hashmap *map, void* k, void* v) {
+int hash_remap(hashmap *map, const void* k, void* v) {
     struct hash_node *node = _hash_find(map, k);
     if (node == NULL) {
         return HASH_ELEMENT_NOT_FOUND;
@@ -227,7 +223,7 @@ int hash_remap(hashmap *map, void* k, void* v) {
 }
 
 
-int hash_delete(hashmap *map, void* k) {
+int hash_delete(hashmap *map, const void* k) {
     unsigned hash = map->hash_fn(k);
     size_t idx = _get_idx(hash, sizes[map->size_idx]);
 
@@ -258,7 +254,7 @@ int hash_delete(hashmap *map, void* k) {
 }
 
 
-void* hash_get(hashmap *map, void* k) {
+void* hash_get(hashmap *map, const void* k) {
     struct hash_node *node = _hash_find(map, k);
     if (node == NULL) {
         return NULL;

@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <regex.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #ifdef __linux__
 #include <sys/sendfile.h>
@@ -11,10 +12,17 @@
 #include <sys/stat.h>
 
 #include "augbnf.h"
+#include "hashmap.h"
 #include "http.h"
 #include "match.h"
 #include "util.h"
 #include "vprint.h"
+
+
+/* 
+ * protocol reference page:
+ * https://www.w3.org/Protocols/HTTP/1.1/rfc2616bis/draft-lafon-rfc2616bis-03.html
+ */
 
 
 // size of buffer to hold each line from request
@@ -78,21 +86,6 @@ static __inline const char* get_status_str(int status) {
 }
 
 
-/*
- * writes the string error code and reason phrase corresponding to the given
- * status code
- *
- * the buffer must be at least 36 bytes long to fit all possible response
- * codes and messages
- */
-static __inline void write_status_str(int status, int fd) {
-    const char *msg = msgs[status];
-    // TODO calculate at compile time
-    int size = strlen(msg);
-    write(fd, msg, size);
-}
-
-
 static const char * const method_opts[] = {
     "OPTIONS",
     "GET",
@@ -104,6 +97,8 @@ static const char * const method_opts[] = {
     "CONNECT"
 };
 
+
+// -------------------- static globals --------------------
 
 static token_t *http_header;
 
@@ -123,18 +118,128 @@ struct http_header_match {
 };
 
 
+static hashmap extensions;
+
+
+// align with indices in type vector of struct mime_type, 22 types, so need
+// 5 bytes
+enum {
+    aac, arc, ostr, bmp, css, csv, gif, html, ico, ics, jpg, js, json, mp3,
+    png, pdf, sh, tar, txt, xhtml, xml, zip, num_mime_types,
+    default_mime_type = ostr
+};
+ 
+// struct used to store all mime types, that which applies to a given client
+// is stored as a bit-compacted offset in the http struct associated with it
+static const struct mime_types {
+    char *type[num_mime_types];
+} mime_type = {
+    .type = {
+        "audio/aac",
+        "application/x-freearc",
+        "application/octet-stream",
+        "image/bmp",
+        "text/css",
+        "text/csv",
+        "image/gif",
+        "text/html",
+        "image/vnd.microsoft.icon",
+        "text/calendar",
+        "image/jpeg",
+        "text/javascript",
+        "application/json",
+        "audio/mpeg",
+        "image/png",
+        "application/pdf",
+        "application/x-sh",
+        "application/x-tar",
+        "text/plain",
+        "application/xhtml+xml",
+        "application/xml",
+        "application/zip"
+    }
+};
+
+/*
+ * extensions is a map from file extension to MIME type, so a requested file
+ * can be given the write Content-Type header and displayed/used properly
+ */
+static void init_extensions() {
+    static char
+        aacs[]  = "aac",
+        arcs[]  = "arc",
+        bins[]  = "bin",
+        bmps[]  = "bmp",
+        csss[]  = "css",
+        csvs[]  = "csv",
+        gifs[]  = "gif",
+        htmls[] = "html",
+        icos[]  = "ico",
+        icss[]  = "ics",
+        jpgs[]  = "jpg",
+        jpegs[] = "jpeg",
+        jss[]   = "js",
+        jsons[] = "json",
+        mjss[]  = "mjs",
+        mp3s[]  = "mp3",
+        pngs[]  = "png",
+        pdfs[]  = "pdf",
+        shs[]   = "sh",
+        tars[]  = "tar",
+        txts[]  = "txt",
+        xhtmls[]= "xhtml",
+        xmls[]  = "xml",
+        zips[]  = "zip";
+
+
+    str_hash_init(&extensions);
+
+#define off_get(field_name) \
+    (offsetof(struct mime_types, field_name) / sizeof(char*))
+
+    str_hash_insert(&extensions, aacs, (void*) aac);
+    str_hash_insert(&extensions, arcs, (void*) arc);
+    str_hash_insert(&extensions, bins, (void*) ostr);
+    str_hash_insert(&extensions, bmps, (void*) bmp);
+    str_hash_insert(&extensions, csss, (void*) css);
+    str_hash_insert(&extensions, csvs, (void*) csv);
+    str_hash_insert(&extensions, gifs, (void*) gif);
+    str_hash_insert(&extensions, htmls, (void*) html);
+    str_hash_insert(&extensions, icos, (void*) ico);
+    str_hash_insert(&extensions, icss, (void*) ics);
+    str_hash_insert(&extensions, jpgs, (void*) jpg);
+    str_hash_insert(&extensions, jpegs, (void*) jpg);
+    str_hash_insert(&extensions, jss, (void*) js);
+    str_hash_insert(&extensions, jsons, (void*) json);
+    str_hash_insert(&extensions, mjss, (void*) js);
+    str_hash_insert(&extensions, mp3s, (void*) mp3);
+    str_hash_insert(&extensions, pngs,(void*) png);
+    str_hash_insert(&extensions, pdfs, (void*) pdf);
+    str_hash_insert(&extensions, shs, (void*) sh);
+    str_hash_insert(&extensions, tars, (void*) tar);
+    str_hash_insert(&extensions, txts, (void*) txt);
+    str_hash_insert(&extensions, xhtmls, (void*) xhtml);
+    str_hash_insert(&extensions, xmls, (void*) xml);
+    str_hash_insert(&extensions, zips, (void*) zip);
+
+}
+
+
+
 int http_init() {
     http_header = bnf_parsef("grammars/http_header.bnf");
     if (http_header == NULL) {
         fprintf(stderr, P_RED "http initialization failed\n" P_RESET);
         return -1;
     }
+    init_extensions();
 
     return 0;
 }
 
 void http_exit() {
     pattern_free(http_header);
+    hash_free(&extensions);
 }
 
 
@@ -195,6 +300,34 @@ static __inline char get_status(struct http *p) {
     return 0x3f & *b;
 }
 
+
+/*
+ * given a file extension, returns the index associated with the associated
+ * MIME type, to be stored in the http struct
+ */
+static __inline void set_mime_type(struct http *p, const char* ext) {
+    void* ret = str_hash_get(&extensions, ext);
+    unsigned type;
+
+    printf("mime type: %s\n", ext);
+
+    if (ret == NULL) {
+        // not a recognizes extension
+        type = default_mime_type;
+    }
+    else {
+        type = (unsigned) ret;
+    }
+
+    p->status |= type << MIME_TYPE_OFFSET;
+}
+
+static __inline const char* get_mime_type(struct http *p) {
+    unsigned type = (p->status >> MIME_TYPE_OFFSET) &
+        ((1U << MIME_TYPE_BITS) - 1);
+
+    return mime_type.type[type];
+}
 
 
 
@@ -261,11 +394,26 @@ static __inline int parse_uri(struct http *p, char *buf) {
     }
 
     char* uri = &buf[match.abs_uri.so];
+    size_t uri_len = match.abs_uri.eo - match.abs_uri.so;
 
     // null-terminate uri, but save what was previously there so it can be
     // restored
     char tmp = buf[match.abs_uri.eo];
     buf[match.abs_uri.eo] = '\0';
+
+
+    // first use URI to set MIME type in http struct
+    char *ext = (char*) memchr(uri, '.', uri_len);
+    if (ext == NULL) {
+        // no extension, set ext to the end of uri, i.e. ""
+        ext = uri + uri_len;
+    }
+    else {
+        // skip the dot
+        ext++;
+    }
+    set_mime_type(p, ext);
+
 
     char fullpath[sizeof(PUBLIC_FILE_SRC) + MAX_URI_SIZE];
     sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
@@ -395,8 +543,9 @@ int http_respond(struct http *p, int fd) {
     int len = snprintf(buf, sizeof(buf),
             "HTTP/1.1 %s\n"
             "Content-Length: %lu\n"
+            "Content-Type: %s\n"
             "\n",
-            msgs[(unsigned) get_status(p)], size);
+            get_status_str((unsigned) get_status(p)), size, get_mime_type(p));
     write(fd, buf, len);
 
     if (p->fd != -1) {

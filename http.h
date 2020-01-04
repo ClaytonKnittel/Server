@@ -32,6 +32,7 @@
 #define RESPONSE 3
 
 
+
 /* response status-codes */
 
 // 39 states, requre 6 bits
@@ -98,6 +99,11 @@ enum status {
 #define INVALID 0xf0
 
 
+// number of bits taken by MIME type
+#define MIME_TYPE_BITS   5
+// offset in status bitvector
+#define MIME_TYPE_OFFSET 14
+
 struct http {
     /*
      * bitpacking all states in status variable:
@@ -105,9 +111,10 @@ struct http {
      *  F - state (of FSM)
      *  M - method
      *  S - status
+     *  T - MIME type of requested file
      *
      * | msb                         lsb |
-     * ________ ________ __SSSSSS MMMMFF_V
+     * ________ _____TTT TTSSSSSS MMMMFF_V
      *
      */
     int status;

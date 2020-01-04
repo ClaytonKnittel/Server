@@ -1178,7 +1178,7 @@ static void free_state(parse_state *state) {
  * initializes hashmap and then propagates calls to rule_parse
  */
 static token_t* bnf_parse(parse_state *state) {
-    if (hash_init(&state->rules, &str_hash, &str_cmp) != 0) {
+    if (str_hash_init(&state->rules) != 0) {
         dprintf(STDERR_FILENO, "Unable to initialize hashmap\n");
         return NULL;
     }
@@ -1410,9 +1410,8 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
 void bnf_print(token_t *patt) {
     count_ = 0;
     hashmap seen;
-    hash_init(&seen, &ptr_hash, &ptr_cmp);
+    str_hash_init(&seen);
     _bnf_print(patt, &seen);
-    printf("\n");
 
     void *k;
     unsigned *count;

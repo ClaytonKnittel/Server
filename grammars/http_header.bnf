@@ -46,7 +46,7 @@ toplabel        = alpha | ( alpha *( alphanum | '-' ) alphanum )
 IPv4_address    = 1*digit '.' 1*digit '.' 1*digit '.' 1*digit
 port            = *digit
 
-path            = [ abs_path | opaque_part ]
+; path            = [ abs_path | opaque_part ]
 path_segments   = segment *( '/' segment )
 segment         = *pchar *( ';' param )
 param           = *pchar

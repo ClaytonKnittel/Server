@@ -12,6 +12,61 @@
 #define LOAD_FACTOR 0.75
 
 
+
+// macros for creation of typed hash functions
+
+// assumes hash and cmp functions are named like <name>_hash and <name>_cmp
+#define __HASH_MAKE_INIT(type1, name) \
+    static __inline int name ## _hash_init(hashmap *map) {                \
+        return hash_init(map, (unsigned (*) (const void*)) name ## _hash, \
+                (int (*) (const void*, const void*)) name ## _cmp);       \
+    }
+
+#define __HASH_MAKE_FREE(name) \
+    static __inline void name ## _hash_free(hashmap *map) { \
+        hash_free(map);                                     \
+    }
+
+#define __HASH_MAKE_INSERT(type1, type2, name) \
+    static __inline int name ## _hash_insert(hashmap *map, type1 k, type2 v) { \
+        return hash_insert(map, (void*) k, (void*) v);                         \
+    }
+
+#define __HASH_MAKE_REMAP(type1, type2, name) \
+    static __inline int name ## _hash_remap(hashmap *map, const type1 k, \
+            type2 v) {                                                   \
+        return hash_remap(map, (const void*) k, (void*) v);              \
+    }
+
+#define __HASH_MAKE_DELETE(type1, name) \
+    static __inline int name ## _hash_delete(hashmap *map, const type1 k) { \
+        return hash_delete(map, (const void*) k);                           \
+    }
+
+#define __HASH_MAKE_GET(type1, name) \
+    static __inline type1 name ## _hash_get(hashmap *map, const type1 k) { \
+        return (type1) hash_get(map, (const void*) k);                     \
+    }
+
+#define __HASH_MAKE_PRINT(name) \
+    static __inline void name ## _hash_print(hashmap *map) { \
+        hash_print(map);                                     \
+    }
+
+
+#define HASH_MAKE_TYPED(type1, type2, name) \
+    typedef hashmap name ## _hashmap;       \
+    __HASH_MAKE_INIT(type1, name)           \
+    __HASH_MAKE_FREE(name)                  \
+    __HASH_MAKE_INSERT(type1, type2, name)  \
+    __HASH_MAKE_REMAP(type1, type2, name)   \
+    __HASH_MAKE_DELETE(type1,  name)        \
+    __HASH_MAKE_GET(type1,  name)           \
+    __HASH_MAKE_PRINT(name)
+
+
+
+
 // table size source: https://planetmath.org/goodhashtableprimes
 
 static const unsigned int sizes[] = {
@@ -55,25 +110,25 @@ typedef struct {
     size_t load_limit;
 
     // hash function used for hashing
-    unsigned (*hash_fn) (void*);
+    unsigned (*hash_fn) (const void*);
     // comparison function used to compare two keys. Should give 0 if the two
     // elements are equal, and any nonzero value if they differ
-    int (*cmp_fn) (void*, void*);
+    int (*cmp_fn) (const void*, const void*);
 } hashmap;
 
 
 // generic string hash function
-unsigned str_hash(void* v_str);
+unsigned str_hash(const char* v_str);
 
 // generic string cmp function
-int str_cmp(void* v_str1, void* v_str2);
+int str_cmp(const char* v_str1, const char* v_str2);
 
 
 // generic pointer hash function
-unsigned ptr_hash(void* ptr);
+unsigned ptr_hash(const void* ptr);
 
 // generic pointer cmp function
-int ptr_cmp(void* ptr1, void* ptr2);
+int ptr_cmp(const void* ptr1, const void* ptr2);
 
 
 struct hash_node* find_next(hashmap *map, struct hash_node* prev,
@@ -105,8 +160,8 @@ struct hash_iterator {
 /*
  * initializes a hashmap, returning 0 on success and -1 on failure
  */
-int hash_init(hashmap *map, unsigned (*hash_fn) (void*),
-        int (*cmp_fn) (void*, void*));
+int hash_init(hashmap *map, unsigned (*hash_fn) (const void*),
+        int (*cmp_fn) (const void*, const void*));
 
 
 /*
@@ -126,25 +181,30 @@ int hash_insert(hashmap *map, void* k, void* v);
  * changes the given key to instead point to v, discarding whatever it
  * used to point to
  */
-int hash_remap(hashmap *map, void* k, void* v);
+int hash_remap(hashmap *map, const void* k, void* v);
 
 /*
  * removes the given element from the hashmap
  *
  * returns 0 on success, HASH_ELEMENT_NOT_FOUND if not found
  */
-int hash_delete(hashmap *map, void* k);
+int hash_delete(hashmap *map, const void* k);
 
 
 /*
  * returns the value associated with the given key in the hashtable, or
  * NULL if not found
  */
-void* hash_get(hashmap *map, void* k);
+void* hash_get(hashmap *map, const void* k);
 
 
 /*
  * prints the hashtable, for debugging purposes
  */
 void hash_print(hashmap *map);
+
+
+
+// makes str_hash
+HASH_MAKE_TYPED(char*, void*, str)
 

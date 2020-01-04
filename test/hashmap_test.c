@@ -10,7 +10,7 @@ int main() {
 
     hashmap map;
 
-    assert(hash_init(&map, &str_hash, &str_cmp), 0);
+    assert(str_hash_init(&map), 0);
 
     char str1[] = "message 1 hey!";
     char str2[] = "message 2 hey!";
