@@ -309,14 +309,14 @@ static __inline void set_mime_type(struct http *p, const char* ext) {
     void* ret = str_hash_get(&extensions, ext);
     unsigned type;
 
-    printf("mime type: %s\n", ext);
+    vprintf("mime type: %s\n", ext);
 
     if (ret == NULL) {
         // not a recognizes extension
         type = default_mime_type;
     }
     else {
-        type = (unsigned) ret;
+        type = (size_t) ret;
     }
 
     p->status |= type << MIME_TYPE_OFFSET;
@@ -421,7 +421,6 @@ static __inline int parse_uri(struct http *p, char *buf) {
     // restore
     buf[match.abs_uri.eo] = tmp;
 
-    //printf("opening path \"%s\"\n", fullpath);
     p->fd = open(fullpath, O_RDONLY);
 
     vprintf("opened %s\n", fullpath);

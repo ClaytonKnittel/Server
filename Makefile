@@ -1,7 +1,7 @@
 UNAME=$(shell uname -s)
 ifeq ($(UNAME),Linux)
 	LIBS=-pthread -lrt -lm
-	FEAT_TEST_MACROS=-D_GNU_SOURCE -D_POSIX_SOURCE
+	FEAT_TEST_MACROS=-D_DEFAULT_SOURCE -D_POSIX_SOURCE -D_GNU_SOURCE
 else ifeq ($(UNAME),Darwin)
 	LIBS=-pthread
 	FEAT_TEST_MACROS=
