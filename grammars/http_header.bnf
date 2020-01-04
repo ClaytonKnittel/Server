@@ -2,12 +2,12 @@ uri             = [ absolute_uri | relative_uri ] [ "#" { fragment } ]
 
 ; TODO fix issue with this being on top
 ; captures:
+;   0 - fragment
 ;   1 - scheme (likely http)
-;   2 - authority
-;   3 - abs uri
-;   4 - rel uri
+;   2 - abs uri
+;   3 - rel uri
+;   4 - authority
 ;   5 - query variables
-;   6 - fragment
 
 absolute_uri    = { scheme } ':' ( heir_part | opaque_part )
 relative_uri    = ( net_path | abs_path | rel_path ) [ '?' query ]
@@ -53,7 +53,7 @@ param           = *pchar
 pchar           = ( unreserved | escaped |
                     ':' | '@' | '&' | '=' | '+' | '$' | ',' )
 
-query           = *uric
+query           = { *uric }
 
 fragment        = *uric
 

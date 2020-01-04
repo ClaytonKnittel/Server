@@ -161,12 +161,12 @@ size_t dmsg_read(dmsg_list*, int fd);
 size_t dmsg_read_n(dmsg_list*, int fd, size_t count);
 
 /*
- * copies the dmsg_list into the supplied buffer, assuming the buffer is
- * large enough to fit all of the data from the list
+ * copies the dmsg_list into the supplied buffer, up to the size of the buffer,
+ * without null-terminating the message
  *
- * returns 0 on success, nonzero on failure
+ * returns the number of bytes written to buf
  */
-int dmsg_cpy(dmsg_list*, char *buf);
+size_t dmsg_cpy(dmsg_list*, char *buf, size_t size);
 
 /*
  * attempts to write all data from the dmsg_list object to the given file

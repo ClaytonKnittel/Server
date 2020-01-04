@@ -234,14 +234,19 @@ size_t dmsg_read_n(dmsg_list *list, int fd, size_t count) {
     return total_read;
 }
 
-int dmsg_cpy(dmsg_list *list, char *buf) {
+size_t dmsg_cpy(dmsg_list *list, char *buf, size_t bufsize) {
     size_t size;
-    for (int i = 0; i < list->list_size; i++) {
+    size_t bs = bufsize;
+
+    for (int i = 0; i < list->list_size && bs > 0; i++) {
         size = list->list[i].size;
+        // don't exceed the length of the buffer
+        size = (size > bs) ? bs : size;
         memcpy(buf, list->list[i].msg, size);
         buf += size;
+        bs -= size;
     }
-    return 0;
+    return bufsize - bs;
 }
 
 int dmsg_write(dmsg_list *list, int fd) {

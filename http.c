@@ -1,18 +1,21 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <regex.h>
 #include <stdlib.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/sendfile.h>
+#elif __APPLE__
+#include <sys/socket.h>
+#endif
+#include <sys/stat.h>
 
+#include "augbnf.h"
 #include "http.h"
 #include "match.h"
 #include "util.h"
 #include "vprint.h"
 
-// terminology from:
-// https://www.w3.org/Protocols/HTTP/1.1/rfc2616bis/draft-lafon-rfc2616bis-03.html
-
-
-#define CFLAGS REG_EXTENDED
 
 // size of buffer to hold each line from request
 // (max method size (7)) + SP + URI + SP + (max version size (8)) + LF
@@ -20,6 +23,9 @@
 // maximum allowable size of URI
 #define MAX_URI_SIZE 256
 
+
+// directory from which files are served
+#define PUBLIC_FILE_SRC __DIR__ "serveup"
 
 
 static const char * const msgs[] = {
@@ -99,148 +105,36 @@ static const char * const method_opts[] = {
 };
 
 
+static token_t *http_header;
 
-#define URI "(?:(?:" ABSOLUTE_URI "|" RELATIVE_URI ")(?:#" FRAGMENT ")?)"
-#define ABSOLUTE_URI "(?:" SCHEME ":(?:" HEIR_PART "|" OPAQUE_PART "))"
-#define RELATIVE_URI "(?:" NET_PATH "|" ABS_PATH "|" REL_PATH ")" \
-    "(?:\\?" QUERY ")?"
-
-#define HEIR_PART "(?:" NET_PATH "|" ABS_PATH")"
-// captures
-#define OPAQUE_PART "(" URIC_NO_SLASH URIC "*)"
-
-#define URIC_NO_SLASH "(?:[" UNRESERVED ";\\?:@&=\\+\\$,]|" ESCAPED ")"
-
-#define NET_PATH "(?:\\/\\/" AUTHORITY ABS_PATH "?)"
-// captures
-#define ABS_PATH "(\\/" PATH_SEGMENTS ")"
-#define ABS_PATH_NOCAPTURE "(?:\\/" PATH_SEGMENTS ")"
-#define REL_PATH "(" REL_SEGMENT ABS_PATH_NOCAPTURE "?)"
-
-#define REL_SEGMENT "(?:[" UNRESERVED ";@&=\\+\\$,]|" ESCAPED ")+"
-
-#define SCHEME "(?:[" ALPHA "][" ALPHA DIGIT "\\+\\-\\.]*)"
-
-#define AUTHORITY "(?:" SERVER "|" REG_NAME ")"
-
-#define REG_NAME "(?:[" UNRESERVED "\\$,;:@&=\\+]|" ESCAPED ")+"
-
-#define SERVER "(?:(?:" USERINFO "@)?" HOSTPORT ")?"
-#define USERINFO "(?:[" UNRESERVED ";:&=\\+\\$,]|" ESCAPED ")*"
-
-#define HOSTPORT "(?:" HOST "(?::" PORT ")?)"
-#define HOST "(?:" HOSTNAME "|" IPV4ADDRESS ")"
-#define HOSTNAME "(?:(?:" DOMAINLABEL "\\.)*" TOPLABEL "\\.?)"
-#define DOMAINLABEL "(?:[" ALPHANUM "](?:[" ALPHANUM "\\-]+[" ALPHANUM "])?)"
-#define TOPLABEL "(?:[" ALPHA "](?:[" ALPHANUM "\\-]+[" ALPHANUM "])?)"
-#define IPV4ADDRESS "(?:[" DIGIT "]+\\.[" DIGIT "]+\\.[" DIGIT "]+" \
-    "\\.[" DIGIT "]+)"
-#define PORT "[" DIGIT "]*"
-
-#define PATH "(?:" ABS_PATH "|" OPAQUE_PART ")?"
-#define PATH_SEGMENTS "(?:" SEGMENT "(?:\\/" SEGMENT ")*)"
-#define SEGMENT "(?:" PCHAR "*(?:;" PARAM ")*)"
-#define PARAM PCHAR "*"
-#define PCHAR "(?:[" UNRESERVED ":@&=\\+\\$,]|" ESCAPED ")"
-
-#define QUERY URIC "*"
-
-#define FRAGMENT URIC "*"
-
-
-#define URIC "(?:[" UNRESERVED RESERVED "]|" ESCAPED ")"
-#define RESERVED ";\\/\\?:@&=\\+\\$,"
-#define UNRESERVED ALPHANUM MARK
-#define MARK "\\-_\\.!~\\*'\\(\\)"
-
-#define ESCAPED "(?:%%[" HEX "][" HEX "])"
-#define HEX DIGIT "A-Fa-f"
-
-#define ALPHANUM ALPHA DIGIT
-#define ALPHA LOWALPHA UPALPHA
-
-#define LOWALPHA "a-z"
-#define UPALPHA "A-Z"
-#define DIGIT "0-9"
-
-
-static struct patterns {
-    char_class
-        // digits '0' - '9'
-        digit,
-        // digit and 'a' - 'f' or 'A' - 'F'
-        hex,
-        // upper and lowercase letters 'a' - 'z' and 'A' - 'Z'
-        alpha,
-        // alpha and digit
-        alphanum,
-        // ;, /, ?, :, @, &, =, +, &, ","
-        reserved,
-        // alphanum and -, _, ., !, ~, *, ', (, )
-        unreserved,
-        // of the form % HEX HEX (need special treatment for this)
-        escaped,
-        // unreserved, reserved, or escaped
-        uric;
-} patterns;
-
-
-static void init_patterns() {
-    __builtin_memset(&patterns, 0, sizeof(struct patterns));
-
-    cc_allow_num(&patterns.digit);
-
-    cc_allow_num(&patterns.hex);
-    cc_allow_range(&patterns.hex, 'A', 'F');
-    cc_allow_range(&patterns.hex, 'a', 'f');
-
-    cc_allow_alpha(&patterns.alpha);
-
-    cc_allow_alphanum(&patterns.alphanum);
-
-    cc_allow(&patterns.reserved, ';');
-    cc_allow(&patterns.reserved, '/');
-    cc_allow(&patterns.reserved, '?');
-    cc_allow(&patterns.reserved, ':');
-    cc_allow(&patterns.reserved, '@');
-    cc_allow(&patterns.reserved, '&');
-    cc_allow(&patterns.reserved, '=');
-    cc_allow(&patterns.reserved, '+');
-    cc_allow(&patterns.reserved, '$');
-    cc_allow(&patterns.reserved, ',');
-
-    cc_allow_alphanum(&patterns.unreserved);
-    cc_allow(&patterns.unreserved, '-');
-    cc_allow(&patterns.unreserved, '_');
-    cc_allow(&patterns.unreserved, '.');
-    cc_allow(&patterns.unreserved, '!');
-    cc_allow(&patterns.unreserved, '~');
-    cc_allow(&patterns.unreserved, '*');
-    cc_allow(&patterns.unreserved, '\'');
-    cc_allow(&patterns.unreserved, '(');
-    cc_allow(&patterns.unreserved, ')');
-
-    // must check that the subsequent two characters are hex
-    cc_allow(&patterns.escaped, '%');
-
-    cc_allow_from(&patterns.uric, &patterns.reserved);
-    cc_allow_from(&patterns.uric, &patterns.unreserved);
-    cc_allow_from(&patterns.uric, &patterns.escaped);
-}
-
-
-
-#define HEADER "^(" METHOD_OPTS ") " URI " (HTTP\\/1.0|HTTP\\/1.1)\\r?$"
-
+struct http_header_match {
+    // #tag, not important on our end
+    match_t fragment;
+    // usually 'http'
+    match_t scheme;
+    // normal uri
+    match_t abs_uri;
+    // uri without leading '/'
+    match_t rel_uri;
+    // username@website.com:port
+    match_t authority;
+    // proceed the '?', like var=val
+    match_t query;
+};
 
 
 int http_init() {
-    init_patterns();
+    http_header = bnf_parsef("grammars/http_header.bnf");
+    if (http_header == NULL) {
+        fprintf(stderr, P_RED "http initialization failed\n" P_RESET);
+        return -1;
+    }
 
     return 0;
 }
 
 void http_exit() {
+    pattern_free(http_header);
 }
 
 
@@ -347,9 +241,42 @@ static __inline int parse_method(struct http *p, char *method) {
 }
 
 
-static __inline char* parse_uri(struct http *p, char *buf) {
-    
-    return buf;
+static __inline int parse_uri(struct http *p, char *buf) {
+
+    struct http_header_match match;
+
+    int ret = pattern_match(http_header, buf,
+            sizeof(struct http_header_match) / sizeof(match_t),
+            (match_t*) &match);
+
+    if (ret == MATCH_FAIL) {
+        // badly formatted uri
+        p->fd = -1;
+        return -1;
+    }
+    if (match.abs_uri.so == -1) {
+        // no uri requested
+        p->fd = -1;
+        return -1;
+    }
+
+    char* uri = &buf[match.abs_uri.so];
+
+    // null-terminate uri, but save what was previously there so it can be
+    // restored
+    char tmp = buf[match.abs_uri.eo];
+    buf[match.abs_uri.eo] = '\0';
+
+    char fullpath[sizeof(PUBLIC_FILE_SRC) + MAX_URI_SIZE];
+    sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
+
+    // restore
+    buf[match.abs_uri.eo] = tmp;
+
+    //printf("opening path \"%s\"\n", fullpath);
+    p->fd = open(fullpath, O_RDONLY);
+
+    return 0;
 }
 
 /*
@@ -414,8 +341,7 @@ int http_parse(struct http *p, dmsg_list *req) {
                 set_status(p, bad_request);
                 return HTTP_ERR;
             }
-            req_path = parse_uri(p, req_path);
-            if (req_path == NULL) {
+            if (parse_uri(p, req_path) != 0) {
                 // the URI was not properly formatted
                 set_state(p, RESPONSE);
                 set_status(p, not_found);
@@ -441,7 +367,6 @@ int http_parse(struct http *p, dmsg_list *req) {
     //set_state(p, state);
     set_state(p, RESPONSE);
     set_status(p, ok);
-    printf("state then: %d\n", get_state(p));
 
     // FIXME
     return HTTP_DONE;
@@ -449,29 +374,39 @@ int http_parse(struct http *p, dmsg_list *req) {
 
 
 int http_respond(struct http *p, int fd) {
-    printf("state now: %d\n", get_state(p));
     if (get_state(p) != RESPONSE) {
-        printf("http response err!\n");
-        http_print(p);
         // should not call respond if not in respond state
         return HTTP_ERR;
     }
-    printf("http response!\n");
-    http_print(p);
+    //http_print(p);
 
-    char *now;
+    size_t size = 0;
+    if (p->fd != -1) {
+        struct stat stat;
+        if (fstat(p->fd, &stat) == 0) {
+            size = stat.st_size;
+        }
+        else {
+            fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
+        }
+    }
 
     char buf[4096];
-    memcpy(buf, "HTTP/1.1 ", 9);
-    now = buf + 9;
-    strcpy(now, msgs[(unsigned) get_status(p)]);
-    now = memchr(now, '\0', 4096);
-    char msg[] =
-        "\nContent-Length: 16"
-        "\n\n"
-        "some test text!\n";
-    memcpy(now, msg, sizeof(msg) - 1);
-    write(fd, buf, ((size_t) (now - buf)) + sizeof(msg) - 1);
+    int len = snprintf(buf, sizeof(buf),
+            "HTTP/1.1 %s\n"
+            "Content-Length: %lu\n"
+            "\n",
+            msgs[(unsigned) get_status(p)], size);
+    write(fd, buf, len);
+
+    if (p->fd != -1) {
+#ifdef __linux__
+        sendfile(fd, p->fd, NULL, size);
+#elif __APPLE__
+        off_t n_bytes = size;
+        sendfile(p->fd, fd, 0, &n_bytes, NULL, 0);
+#endif
+    }
 
     return 0;
 }

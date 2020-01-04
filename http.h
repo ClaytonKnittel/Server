@@ -114,7 +114,7 @@ struct http {
 
     // fd to open requested file. If no file was requested, value is -1,
     // if the entire request has not yet been received or an error occured,
-    // it's value is undefined and should not be read
+    // its value is undefined and should not be read
     int fd;
 };
 

@@ -272,14 +272,14 @@ static int disconnect(struct server *server, struct client *client, int thread) 
     int ret;
     vprintf("Thread %d disconnected %d\n", thread, client->connfd);
 
-    write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+    /*write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
     dmsg_write(&client->log, STDOUT_FILENO);
-    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
+    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);*/
 
 #ifdef DEBUG
-    char buf[4096];
+    char buf[5];
+    dmsg_cpy(&client->log, buf, sizeof(buf));
     buf[4] = '\0';
-    dmsg_cpy(&client->log, buf);
 #endif
 
 #ifdef __APPLE__
@@ -352,9 +352,7 @@ static void* _run(void *server_arg) {
 
     int thread = args->thread_id;;
 
-    char msg[] = "thread 0 begin\n";
-    msg[7] += thread;
-    write(STDOUT_FILENO, msg, sizeof(msg));
+    vprintf("thread %d begin\n", thread);
 
     while (1) {
         if ((ret =
@@ -366,6 +364,7 @@ static void* _run(void *server_arg) {
                     ) == -1) {
             fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
                     strerror(errno));
+            continue;
         }
 #ifdef __APPLE__
         fd = event.ident;

@@ -586,16 +586,42 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        //bnf_print(ret);
+        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "", 0, NULL), 0);
         assert(pattern_match(ret, "/", 0, NULL), 0);
         assert(pattern_match(ret, "/test/path", 0, NULL), 0);
-        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
-        assert(pattern_match(ret, "http://www.ics.uci.edu/pub/ietf/uri/#Related", 0, NULL), 0);
-        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
-        assert(pattern_match(ret, "http://clayton@www.google.com/", 0, NULL), 0);
+        assert(pattern_match(ret, "http://clayton@www.google.com/",
+                    0, NULL), 0);
+        assert(pattern_match(ret, "http://www.ics.uci.edu/pub/ietf/uri/#Related",
+                    0, NULL), 0);
+
+        // capturing
+
+        match_t matches[6];
+
+        assert(pattern_match(ret,
+                    "http://clayton@www.google.com/some/file/a.txt?var=1",
+                    6, matches), 0);
+
+        for (int i = 0; i < 6; i++) {
+            printf("m%d: (%ld, %ld)\n", i, matches[i].so, matches[i].eo);
+        }
+
+        assert(matches[0].so, -1); // fragment
+        assert(matches[1].so, 0); // scheme
+        assert(matches[1].eo, 4);
+        assert(matches[2].so, 29); // abs uri
+        assert(matches[2].eo, 45);
+        assert(matches[3].so, -1); // rel uri
+        assert(matches[4].so, 7); // authority
+        assert(matches[4].eo, 29);
+        assert(matches[5].so, 46); // query vars
+        assert(matches[5].eo, 51);
+
+        //assert(pattern_match(ret, "http://clayton@www.google.com/",
+          //          6, matches), 0);
         assert(tmp_check(ret), 0);
 
         pattern_free(ret);

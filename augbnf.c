@@ -1343,6 +1343,7 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
     char *buf;
     literal *lit;
 
+
     unsigned *c = (unsigned*) malloc(sizeof(unsigned));
     if (hash_insert(seen, patt, c) != 0) {
         // already been seen
@@ -1361,6 +1362,9 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
         _bnf_print(patt->next, seen);
     }
 
+    if (!token_captures(patt)) {
+        return;
+    }
     printf("p%u: %d*%d (tmp = %d) (r = %d)", *(unsigned*) hash_get(seen, patt),
             patt->min, patt->max, patt->tmp, patt_ref_count((pattern_t*) patt));
     if (token_captures(patt)) {

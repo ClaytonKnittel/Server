@@ -47,7 +47,7 @@ static void test_write_read(dmsg_list *list) {
     char *buf2 = (char*) malloc(list->len + 1);
     buf2[list->len] = '\0';
 
-    assert(dmsg_cpy(list, buf2), 0);
+    assert(dmsg_cpy(list, buf2, list->len), list->len);
 
     v_ensure(fprintf(stderr, "From dmsg_cpy:\t%s\n", buf2));
 
