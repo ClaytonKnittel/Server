@@ -194,11 +194,37 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 
 
 
-static void _patt_free(pattern_t *patt) {
+void _pattern_free(hashmap *seen, pattern_t *patt) {
     token_t *token;
     if (patt_type(patt) == TYPE_TOKEN) {
         token = &patt->token;
-        pattern_free(token);
+
+        if (hash_insert(seen, token, NULL) == 0) {
+            // only recurse if this is the first time seeing this node
+
+            if (token->node != NULL) {
+                // TODO node is never null for fully constructed FSMs
+                patt_ref_dec(token->node);
+                printf("node %p to %d\n", token->node, patt_ref_count(token->node));
+                _pattern_free(seen, token->node);
+            }
+
+            if (token->alt != NULL) {
+                patt_ref_dec((pattern_t*) token->alt);
+                printf("alt  %p to %d\n", token->alt, patt_ref_count((pattern_t*) token->alt));
+                _pattern_free(seen, (pattern_t*) token->alt);
+            }
+
+            if (token->next != NULL) {
+                patt_ref_dec((pattern_t*) token->next);
+                printf("next %p to %d\n", token->next, patt_ref_count((pattern_t*) token->next));
+                _pattern_free(seen, (pattern_t*) token->next);
+            }
+
+            if (patt_ref_count(patt) == 0) {
+                free(token);
+            }
+        }
     }
     else if (patt_ref_count(patt) == 0) {
         printf("not token\n");
@@ -207,24 +233,11 @@ static void _patt_free(pattern_t *patt) {
 }
 
 void pattern_free(token_t *token) {
-    if (patt_ref_count((pattern_t*) token) == 0) {
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
 
-        // node is never null, so safe to free without checking
-        patt_ref_dec(token->node);
-        _patt_free(token->node);
-
-        if (token->alt != NULL) {
-            patt_ref_dec((pattern_t*) token->alt);
-            _patt_free((pattern_t*) token->alt);
-        }
-
-        if (token->next != NULL) {
-            patt_ref_dec((pattern_t*) token->next);
-            _patt_free((pattern_t*) token->next);
-        }
-
-        free(token);
-    }
+    _pattern_free(&seen, (pattern_t*) token);
+    hash_free(&seen);
 }
 
 

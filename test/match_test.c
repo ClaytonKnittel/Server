@@ -294,7 +294,6 @@ int main() {
 
         pattern_free(ret);
 
-
         char bnf2[] =
             "  abd = \"ca\" | (\"bad\") | \"ad\"";
 
@@ -318,7 +317,6 @@ int main() {
     }
 
 
-    exit(0);
     // test badly formed rexeges
     {
         token_t *ret;
@@ -333,14 +331,14 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, open_string);
         assert((long) ret, (long) NULL);
-
+    
         char bnf3[] =
             "  abd = \" ab\" ( more |  \n"
             " words  ) | \" help\"";
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, and_or_mix);
         assert((long) ret, (long) NULL);
-
+    
         char bnf4[] =
             " main_rule = \"test\" no_rule \n"
             " norule = \"whoops\"";
@@ -373,6 +371,7 @@ int main() {
         assert(tmp_check(ret), 0);
 
 
+    exit(0);
         pattern_free(ret);
 
         char bnf2[] =
@@ -452,6 +451,8 @@ int main() {
         pattern_free(ret);
     }
 
+
+    exit(0);
 
     // test backtracking
     {

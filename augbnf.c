@@ -70,7 +70,6 @@ static __inline void init_parsers() {
 
     cc_allow(&parsers.quote, '"');
     cc_allow_all(&parsers.all);
-    //cc_disallow(&parsers.all, '\n');
 }
 
 
@@ -256,14 +255,14 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
 #define RETURN_ERR(err_lvl) \
     errno = (err_lvl); \
-    free(token); \
+    pattern_free(token); \
     if (ret != NULL) { \
         pattern_free(ret); \
     } \
     return NULL
 
 #define PROPAGATE_ERR \
-    free(token); \
+    pattern_free(token); \
     if (ret != NULL) { \
         pattern_free(ret); \
     } \
@@ -822,14 +821,21 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         memcpy(symbol, sym->word, sym->length);
         symbol[sym->length] = '\0';
 
+        // we are now done with the unresolved node, so we can free it
+        free(unres);
+        token->node = NULL;
+
         token_t *res = hash_get(rules, symbol);
 
         if (res == NULL) {
             // if not found, this is an undefined symbol
             BNF_ERR_NOLINE("symbol \"%s\" undefined\n", symbol);
             errno = undefined_symbol;
+            free(symbol);
             return -1;
         }
+        free(symbol);
+
         if (is_processing(res)) {
             // error, cycle detected
             BNF_ERR_NOLINE("circular symbol reference\n");
@@ -850,9 +856,6 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
 
         // increment the reference count of what we just linked to
         // patt_ref_inc(res);
-
-        // we are now done with the unresolved node, so we can free it
-        free(unres);
     }
     else if (patt_type(token->node) == TYPE_TOKEN) {
         ret = _resolve_symbols(rules, &token->node->token, depth + 1,
@@ -888,9 +891,6 @@ static int resolve_symbols(parse_state *state) {
 
     int ret = _resolve_symbols(&state->rules, state->main_rule, 0,
             NOT_ANONYMOUS);
-    if (ret != 0) {
-        return ret;
-    }
 
     // go through and check to see if there are any unused symbols
     void *k, *v;
@@ -910,7 +910,7 @@ static int resolve_symbols(parse_state *state) {
         // each key was allocated specifically for the hashmap
         free(k);
     }
-    return 0;
+    return ret;
 }
 
 
@@ -1160,6 +1160,16 @@ static int consolidate(parse_state *state) {
 */
 
 
+static void free_state(parse_state *state) {
+    char *rule_name;
+    token_t *token;
+    hashmap_for_each(&state->rules, rule_name, token) {
+        free(rule_name);
+        pattern_free(token);
+    }
+    hash_free(&state->rules);
+}
+
 /*
  * initializes hashmap and then propagates calls to rule_parse
  */
@@ -1173,13 +1183,14 @@ static token_t* bnf_parse(parse_state *state) {
     // first parse the main rule, which is defined as the first rule
     state->main_rule = rule_parse(state);
     if (state->main_rule == NULL) {
+        hash_free(&state->rules);
         return NULL;
     }
 
     // and now parse the remaining rules
     while (rule_parse(state) != NULL);
     if (errno != eof) {
-        // TODO memory cleanup
+        free_state(state);
         return NULL;
     }
     // successfully parsed everything
@@ -1188,7 +1199,7 @@ static token_t* bnf_parse(parse_state *state) {
     void *k, *v;
     hashmap_for_each(&state->rules, k, v) {
         printf("%s = ", (char*) k);
-        //bnf_print((pattern_t*) v);
+        bnf_print(v);
         printf("\n");
     }
 
@@ -1333,7 +1344,7 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
         return;
     }
     *c = count_++;
-    
+
     if (patt_type(patt->node) == TYPE_TOKEN) {
         _bnf_print(&patt->node->token, seen);
     }
@@ -1344,8 +1355,8 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
         _bnf_print(patt->next, seen);
     }
 
-    printf("p%u: %d*%d (tmp = %d) ", *(unsigned*) hash_get(seen, patt),
-            patt->min, patt->max, patt->tmp);
+    printf("p%u: %d*%d (tmp = %d) (r = %d)", *(unsigned*) hash_get(seen, patt),
+            patt->min, patt->max, patt->tmp, patt_ref_count((pattern_t*) patt));
     if (token_captures(patt)) {
         printf("(mid: %u) ", patt->match_idx);
     }
@@ -1374,6 +1385,9 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
     if (patt_type(patt->node) == TYPE_TOKEN) {
         printf("for p%u\t", *(unsigned*) hash_get(seen, &patt->node->token));
     }
+    else {
+        printf(" (r %d)", patt_ref_count(patt->node));
+    }
     if (patt->alt != NULL) {
         printf(" or p%u:\t", *(unsigned*) hash_get(seen, patt->alt));
     }
@@ -1388,8 +1402,17 @@ void bnf_print(token_t *patt) {
     hashmap seen;
     hash_init(&seen, &ptr_hash, &ptr_cmp);
     _bnf_print(patt, &seen);
-    //_bnf_print(patt, 1, 1);
     printf("\n");
+
+    void *k;
+    unsigned *count;
+    unsigned c = 0;
+    hashmap_for_each(&seen, k, count) {
+        printf("jst freed %u\n", *count);
+        free(count);
+        c++;
+    }
+    printf("c = %u\ncount_ = %u\n", c, count_);
     hash_free(&seen);
 }
 

@@ -59,6 +59,28 @@ int main() {
     hash_free(&map);
 
 
+
+    assert(hash_init(&map, &ptr_hash, &ptr_cmp), 0);
+
+    void *ptrs[SIZE];
+    for (ssize_t i = 0; i < SIZE; i++) {
+        ptrs[i] = malloc(i + 8);
+        assert(hash_insert(&map, bufs[i], *((void**) bufs[i])), 0);
+        assert(map.size, i + 1);
+        assert((long) ((double) i / sizes[map.size_idx] <= LOAD_FACTOR), 1);
+        for (ssize_t j = (i - 8 < 0 ? 0 : i - 8); j < i; j++) {
+            assert(hash_insert(&map, bufs[j], NULL), HASH_ELEMENT_EXISTS);
+        }
+        assert(map.size, i + 1);
+    }
+    v_ensure(hash_print(&map));
+
+    for (size_t i = 0; i < SIZE; i++) {
+        free(ptrs[i]);
+    }
+    hash_free(&map);
+
+
     printf(P_GREEN "All hashmap tests passed" P_RESET "\n");
     return 0;
 }

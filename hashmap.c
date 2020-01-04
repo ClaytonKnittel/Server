@@ -31,8 +31,8 @@ int str_cmp(void* v_str1, void* v_str2) {
 
 
 unsigned ptr_hash(void* ptr) {
-    unsigned l = *(unsigned*) ptr;
-    unsigned h = (unsigned) (*((size_t*) ptr) >> 32);
+    unsigned l = (unsigned) (((size_t) ptr) & 0xffffffff);
+    unsigned h = (unsigned) ((((size_t) ptr) >> 32) & 0xffffffff);
     return l ^ h;
 }
 
@@ -155,7 +155,7 @@ static int _hash_grow(hashmap *map) {
     }
 
     memset(map->buckets, 0, malloc_size);
-    
+
     for (size_t i = 0; i < sizes[map->size_idx - 1]; i++) {
         for (struct hash_node *n = oldbs[i].first; n != NULL;) {
             struct hash_node *nex = n->next;
