@@ -7,3 +7,6 @@ test/*
 .DS_Store
 .vscode
 *.dYSM
+
+core.*
+vgcore.*
