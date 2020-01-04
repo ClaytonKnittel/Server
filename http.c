@@ -276,6 +276,8 @@ static __inline int parse_uri(struct http *p, char *buf) {
     //printf("opening path \"%s\"\n", fullpath);
     p->fd = open(fullpath, O_RDONLY);
 
+    vprintf("opened %s\n", fullpath);
+
     return 0;
 }
 
