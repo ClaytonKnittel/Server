@@ -287,7 +287,7 @@ int main() {
 
         close(fd);
 #ifndef O_TMPFILE
-        unlink(TMP_NAME);
+        unlink("test/.input.txt");
 #undef TMP_NAME
 #endif
     }
