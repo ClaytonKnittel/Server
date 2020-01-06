@@ -275,8 +275,6 @@ int main() {
         token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
-        bnf_print(ret);
-        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
         assert(pattern_match(ret, "ac", 0, NULL), MATCH_FAIL);
@@ -291,8 +289,6 @@ int main() {
 
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert_neq((long) ret, (long) NULL);
-        assert(tmp_check(ret), 0);
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "ca", 0, NULL), 0);
@@ -322,7 +318,6 @@ int main() {
         ret = bnf_parseb(bnf, sizeof(bnf) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
@@ -343,8 +338,6 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        bnf_print(ret);
-
         match_t match;
 
         assert(pattern_match(ret, "clayton is", 1, &match), 0);
@@ -373,9 +366,6 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
-        assert(tmp_check(ret), 0);
-
         assert(pattern_match(ret, "0x1", 0, NULL), 0);
         assert(pattern_match(ret, "0x3f", 0, NULL), 0);
         assert(pattern_match(ret, "0xffff3c4b", 0, NULL), 0);
@@ -397,9 +387,6 @@ int main() {
         ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        assert(tmp_check(ret), 0);
-
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "!", 0, NULL), 0);
@@ -466,7 +453,6 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
@@ -481,7 +467,6 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "acacac", 0, NULL), 0);
@@ -501,7 +486,6 @@ int main() {
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "/abc", 0, NULL), 0);
@@ -530,7 +514,6 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
-        //bnf_print(ret);
 
         match_t matches[2];
 
@@ -564,7 +547,10 @@ int main() {
         assert(tmp_check(ret), 0);
 
         bnf_print(ret);
-        assert(tmp_check(ret), 0);
+
+        size_info_t size = pattern_size(ret);
+        printf("size of pattern: %lu tokens, %lu patterns\n",
+                size.n_tokens, size.n_patterns);
 
         assert(pattern_match(ret, "hello b", 0, NULL), 0);
         assert(pattern_match(ret, "goodbye c", 0, NULL), 0);
@@ -586,8 +572,13 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
+        //bnf_print(ret);
         assert(tmp_check(ret), 0);
+
+        size_info_t size = pattern_size(ret);
+        printf("size of uri spec pattern: %lu tokens, %lu patterns\n",
+                size.n_tokens, size.n_patterns);
+
 
         assert(pattern_match(ret, "", 0, NULL), 0);
         assert(pattern_match(ret, "/", 0, NULL), 0);

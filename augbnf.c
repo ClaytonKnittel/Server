@@ -1362,9 +1362,9 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
         _bnf_print(patt->next, seen);
     }
 
-    if (!token_captures(patt)) {
+    /*if (!token_captures(patt)) {
         return;
-    }
+    }*/
     printf("p%u: %d*%d (tmp = %d) (r = %d)", *(unsigned*) hash_get(seen, patt),
             patt->min, patt->max, patt->tmp, patt_ref_count((pattern_t*) patt));
     if (token_captures(patt)) {
@@ -1410,7 +1410,7 @@ static void _bnf_print(token_t *patt, hashmap *seen) {
 void bnf_print(token_t *patt) {
     count_ = 0;
     hashmap seen;
-    str_hash_init(&seen);
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
     _bnf_print(patt, &seen);
 
     void *k;

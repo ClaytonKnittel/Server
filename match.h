@@ -203,6 +203,18 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 void pattern_free(token_t *patt);
 
 
+typedef struct size_info {
+    size_t n_patterns;
+    size_t n_tokens;
+} size_info_t;
+
+/*
+ * calculates the number of tokens and patterns in this pattern structure,
+ * returning the result as a (n_patterns, n_tokens) pair
+ */
+size_info_t pattern_size(token_t *patt);
+
+
 /*
  * connects patt to pattern "to", meaning each node in patt with a
  * next pointer to NULL is set to point to "to". This is effectively
@@ -223,6 +235,7 @@ int pattern_or(token_t *patt, token_t *opt);
 
 // -------------------- pattern ops --------------------
 
+// returns the type of this pattern
 static __inline int patt_type(pattern_t *patt) {
     return patt->type & TYPE_MASK;
 }
@@ -248,10 +261,12 @@ static __inline unsigned patt_ref_count(pattern_t *patt) {
     return ((unsigned) patt->type) >> REF_COUNT_OFF;
 }
 
+// gets the type of the pattern wrapped by this token
 static __inline int token_type(token_t *t) {
     return patt_type(t->node);
 }
 
+// gives whether or not this token capture
 static __inline int token_captures(token_t *t) {
     return (t->flags & TOKEN_CAPTURE) != 0;
 }

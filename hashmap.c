@@ -7,7 +7,6 @@
 #include "vprint.h"
 
 
-
 /*
  * taken from https://github.com/ndevilla/iniparser/blob/master/src/dictionary.c
  */
@@ -32,11 +31,19 @@ int str_cmp(const char* str1, const char* str2) {
 }
 
 
-
+/*
+ * taken from http://web.archive.org/web/20071223173210/http://
+ * www.concentric.net/~Ttwang/tech/inthash.htm
+ */
 unsigned ptr_hash(const void* ptr) {
-    unsigned l = (unsigned) (((size_t) ptr) & 0xffffffff);
-    unsigned h = (unsigned) ((((size_t) ptr) >> 32) & 0xffffffff);
-    return l ^ h;
+    unsigned long val = (unsigned long) ptr;
+    val = (~val) + (val << 18);
+    val ^= (val >> 31);
+    val *= 21;
+    val &= (val >> 11);
+    val += val << 6;
+    val ^= val >> 22;
+    return (unsigned) val;
 }
 
 int ptr_cmp(const void* ptr1, const void* ptr2) {
@@ -289,7 +296,7 @@ void hash_print(hashmap *map) {
 void hash_print_cond(hashmap *map) {
 #define WID 1
 #define WIDSTR "1"
-#define ROWLEN 80
+#define ROWLEN 76
 #define N_PER_ROW ((ROWLEN + 1) / (WID + 3))
 
     size_t num = 0;

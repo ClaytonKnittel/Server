@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERBOSE
 #include "../t_assert.h"
 #include "../hashmap.h"
 #include "../vprint.h"
