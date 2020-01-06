@@ -19,14 +19,20 @@
 // then reads back from it and compares it to what is
 // in the list
 static void test_write_read(dmsg_list *list) {
-    int fd = open(
-#ifndef O_TMPFILE
+
 #define TMP_NAME "test/.temp.txt"
-            TMP_NAME, O_CREAT |
-#else
-            "test/", O_TMPFILE |
+
+    int fd;
+
+#ifdef O_TMPFILE
+    fd = open("test/", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+
+    if (fd == -1 && errno == ENOTSUP) {
 #endif
-            O_RDWR, S_IRUSR | S_IWUSR);
+        fd = open(TMP_NAME, O_CREAT | O_RDWR | O_TRUNC, S_IRUSR | S_IWUSR);
+#ifdef O_TMPFILE
+    }
+#endif
 
     if (fd == -1) {
         fprintf(stderr, "Unable to create file, reason: %s\n", strerror(errno));
@@ -184,14 +190,20 @@ int main() {
         char msg1[] = "four";
         char msg2[] = "mor__romextra";
 
-        int fd = open(
-#ifndef O_TMPFILE
-#define TMP_NAME "test/.input.txt"
-                TMP_NAME, O_CREAT | O_TRUNC |
-#else
-                "test/", O_TMPFILE |
+        int fd;
+
+#ifdef O_TMPFILE
+        fd = open("test/", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+
+        if (fd == -1 && errno == ENOTSUP) {
 #endif
-                O_RDWR, S_IRUSR | S_IWUSR);
+            fd = open("test/.input.txt", O_CREAT | O_RDWR | O_TRUNC,
+                    S_IRUSR | S_IWUSR);
+#ifdef O_TMPFILE
+        }
+#endif
+
+        assert_neq(fd, -1);
 
         // dmsg_read
         assert(dmsg_init2(&list, 4), 0);
