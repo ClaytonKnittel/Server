@@ -38,8 +38,9 @@ void _bnf_print(token_t *patt, hashmap *seen) {
     /*if (!token_captures(patt)) {
         return;
     }*/
-    printf("p%u: %d*%d (tmp = %d) (r = %d)", *(unsigned*) hash_get(seen, patt),
-            patt->min, patt->max, patt->tmp, patt_ref_count((pattern_t*) patt));
+    printf("(0x%p) p%u: %d*%d (tmp = %d) (r = %d)", patt,
+            *(unsigned*) hash_get(seen, patt), patt->min, patt->max, patt->tmp,
+            patt_ref_count((pattern_t*) patt));
     if (token_captures(patt)) {
         printf("(mid: %u) ", patt->match_idx);
     }
@@ -53,7 +54,7 @@ void _bnf_print(token_t *patt, hashmap *seen) {
             buf = (char*) malloc(lit->length + 1);
             memcpy(buf, lit->word, lit->length);
             buf[lit->length] = '\0';
-            printf("\"%s\"", buf);
+            printf("\"%s\" (len %u)", buf, lit->length);
             free(buf);
             break;
         case TYPE_UNRESOLVED:
@@ -112,10 +113,6 @@ void bnf_print(token_t *patt) {
 // meant to be entirely self-contained
 #define NON_REFERENCEABLE 2
 
-// set for any token which is the alt token of some other token, used to check
-// that no token which is an alt is referenced by more than 1 other token
-#define IS_ALT 4
-
 
 static void mark_processing(token_t *t) {
     t->tmp |= PROCESSING;
@@ -136,16 +133,8 @@ static int is_non_referenceable(token_t *t) {
     return (t->tmp & NON_REFERENCEABLE) != 0;
 }
 
-static void mark_alt(token_t *t) {
-    t->tmp |= IS_ALT;
-}
 
-static int is_alt(token_t *t) {
-    return (t->tmp & IS_ALT) != 0;
-}
-
-
-int _bnf_consistency_check(token_t *patt, token_t *terminater,
+int _bnf_consistency_check(token_t *patt, const token_t *terminator,
         hashmap *counters) {
     int ret = 0;
 
@@ -172,11 +161,18 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
         return -1;
     }
 
-    unsigned *ref_count = (unsigned*) malloc(sizeof(unsigned));
+    unsigned *ref_count = (unsigned*) calloc(1, sizeof(unsigned));
     if (hash_insert(counters, patt, ref_count) != 0) {
         // we have already visited this token
         free(ref_count);
         return 0;
+    }
+
+    mark_processing(patt);
+
+    if (patt->node == NULL) {
+        CON_ERR("Token %p has NULL node\n", patt);
+        return -1;
     }
 
     if (patt_type(patt->node) == TYPE_TOKEN) {
@@ -184,15 +180,27 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
         hashmap subcounters;
         hash_init(&subcounters, &ptr_hash, &ptr_cmp);
 
+        // need to insert our own counter into the subcounter map since the
+        // tokens in the submodule will refer back to us
+        hash_insert(&subcounters, patt, ref_count);
+
         ret = _bnf_consistency_check(&patt->node->token, patt, &subcounters);
         
-        token_t *subtoken;
+        pattern_t *subtoken;
         unsigned *counter;
         // and now add back each of the counters to 
         hashmap_for_each(&subcounters, subtoken, counter) {
+            if (subtoken == (pattern_t*) patt) {
+                // skip ourself
+                continue;
+            }
             if (hash_insert(counters, subtoken, counter) != 0) {
-                free(counter);
-                if (ret == 0) {
+                if (patt_type(subtoken) != TYPE_TOKEN) {
+                    // then we need to combine the two reference counts
+                    unsigned *orig_count = (unsigned*) hash_get(counters, subtoken);
+                    (*orig_count) += *counter;
+                }
+                else if (ret == 0) {
                     // found a node we have already visited, this means there
                     // was a second reference to this submodule, which means
                     // it is not entirely self-contained
@@ -200,12 +208,18 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
                             "exists\n", patt, subtoken);
                     ret = -1;
                 }
+                free(counter);
             }
             // we are not allowed to ever refer to this token again since it's
             // in a submodule
-            mark_non_referenceable(subtoken);
+            if (patt_type(subtoken) == TYPE_TOKEN) {
+                mark_non_referenceable(&subtoken->token);
+            }
         }
         hash_free(&subcounters);
+
+        unsigned *node_ref_count = (unsigned*) hash_get(counters, patt->node);
+        (*node_ref_count)++;
     }
     else {
         // this is a token pointing to a basic pattern, either a literal or
@@ -213,7 +227,7 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
         // map for ref count checking
         unsigned *basic_ref_count;
         if ((basic_ref_count = hash_get(counters, patt->node)) == NULL) {
-            basic_ref_count = (unsigned*) malloc(sizeof(unsigned));
+            basic_ref_count = (unsigned*) calloc(1, sizeof(unsigned));
             if (hash_insert(counters, patt->node, basic_ref_count)) {
                 // what?
                 free(basic_ref_count);
@@ -225,9 +239,19 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
         (*basic_ref_count)++;
     }
 
-    if (ret == 0 && patt->next != terminator) {
-        // only need to check next if it is not the terminator
-        ret = _bnf_consistency_check(patt->next, terminator, counters);
+    if (ret == 0) {
+        if (patt->next != terminator) {
+            // only need to recursively check next if it is not the terminator
+            ret = _bnf_consistency_check(patt->next, terminator, counters);
+            if (ret == 0) {
+                unsigned *next_ref_count = (unsigned*) hash_get(counters, patt->next);
+                (*next_ref_count)++;
+            }
+        }
+        else if (patt->next != NULL) {
+            unsigned *next_ref_count = (unsigned*) hash_get(counters, patt->next);
+            (*next_ref_count)++;
+        }
     }
     if (ret == 0 && patt->alt != NULL) {
         ret = _bnf_consistency_check(patt->alt, terminator, counters);
@@ -243,13 +267,21 @@ int _bnf_consistency_check(token_t *patt, token_t *terminater,
         // that they are equal here, but in reality there is another token
         // referring to this one here, then the reference count check performed
         // at the end will detect an error
-        unsigned *alt_ref_count = (unsigned*) hash_get(counters, patt->alt);
-        if (patt_ref_count(patt->alt) != *alt_ref_count) {
-            CON_ERR("Illegal reference to a token %p which is an alt of some "
-                    "token\n", patt->alt);
-            ret = -1;
+        if (ret == 0) {
+            unsigned *alt_ref_count = (unsigned*) hash_get(counters, patt->alt);
+            (*alt_ref_count)++; // for this token
+            if (patt_ref_count((pattern_t*) patt->alt) != *alt_ref_count) {
+                CON_ERR("Illegal reference to a token %p which is an alt of some "
+                        "token (found count %u, expect %u)\n", patt->alt,
+                        patt_ref_count((pattern_t*) patt->alt), *alt_ref_count);
+                ret = -1;
+            }
         }
     }
+
+    unmark_processing(patt);
+
+    return ret;
 }
 
 /*
@@ -263,15 +295,17 @@ int bnf_consistency_check(token_t *patt) {
     int ret = _bnf_consistency_check(patt, NULL, &counters);
 
     // reset all tmp fields and free all auxiliary data before returning
-    token_t *t;
+    pattern_t *p;
     unsigned *ref_count;
-    hashmap_for_each(&counters, t, ref_count) {
-        t->tmp = 0;
+    hashmap_for_each(&counters, p, ref_count) {
+        if (patt_type(p) == TYPE_TOKEN) {
+            p->token.tmp = 0;
+        }
 
-        if (ret == 0 && patt_ref_count((pattern_t*) t) != *ref_count) {
+        if (ret == 0 && patt_ref_count(p) != *ref_count) {
             // ref count incorrect in pattern
             CON_ERR("ref count incorrect for token %p, expect %u, but found "
-                    "%u\n", t, patt_ref_count((pattern_t*) t), *ref_count);
+                    "%u\n", p, *ref_count, patt_ref_count(p));
             ret = -1;
         }
         free(ref_count);
@@ -547,6 +581,8 @@ int main() {
         token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
         assert(pattern_match(ret, "ac", 0, NULL), MATCH_FAIL);
@@ -561,6 +597,8 @@ int main() {
 
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "ca", 0, NULL), 0);
@@ -591,6 +629,8 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
         assert(pattern_match(ret, "claytoniscool", 0, NULL), MATCH_FAIL);
@@ -610,6 +650,9 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+
         match_t match;
 
         assert(pattern_match(ret, "clayton is", 1, &match), 0);
@@ -637,6 +680,8 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "0x1", 0, NULL), 0);
         assert(pattern_match(ret, "0x3f", 0, NULL), 0);
@@ -659,6 +704,8 @@ int main() {
         ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "!", 0, NULL), 0);
@@ -724,7 +771,7 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
-
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "abc", 0, NULL), 0);
@@ -739,6 +786,8 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "acacac", 0, NULL), 0);
@@ -758,6 +807,8 @@ int main() {
         ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         assert(pattern_match(ret, "/abc", 0, NULL), 0);
@@ -786,6 +837,8 @@ int main() {
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
 
         match_t matches[2];
 
@@ -817,6 +870,8 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
 
         bnf_print(ret);
 
@@ -842,6 +897,8 @@ int main() {
         ret = bnf_parsef("grammars/http_header.bnf");
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
         //bnf_print(ret);

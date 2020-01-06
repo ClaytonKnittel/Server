@@ -8,6 +8,7 @@ test/*
 .vscode
 *.dYSM
 .temp.txt
+*.swp
 
 core.*
 vgcore.*

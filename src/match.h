@@ -78,6 +78,7 @@
  *  No token may have a node value of NULL
  *
  *
+ *
  * FSM iteration rules:
  *
  *  A token may follow its next pointer if and only if it has been adjacently
