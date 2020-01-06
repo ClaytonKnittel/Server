@@ -32,8 +32,10 @@
 #define MAX_URI_SIZE 256
 
 
+//#if __USER__ dd
+#define PUBLIC_FILE_SRC "/home/lilching/public"
 // directory from which files are served
-#define PUBLIC_FILE_SRC __DIR__ "serveup"
+//#define PUBLIC_FILE_SRC __DIR__ "serveup"
 
 
 static const char * const msgs[] = {

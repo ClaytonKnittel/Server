@@ -3,19 +3,26 @@
 #include <string.h>
 
 #include "hashmap.h"
+#include "util.h"
 #include "vprint.h"
 
 
 
-
+/*
+ * taken from https://github.com/ndevilla/iniparser/blob/master/src/dictionary.c
+ */
 unsigned str_hash(const char* str) {
-    const unsigned p = 53;
     unsigned hash = 0;
 
     while (*str != '\0') {
-        hash = p * hash + *str;
+        hash += (unsigned) *str;
+        hash += hash << 10;
+        hash ^= hash >> 6;
         str++;
     }
+    hash += hash << 3;
+    hash ^= hash >> 11;
+    hash += hash << 15;
     return hash;
 }
 
@@ -279,3 +286,37 @@ void hash_print(hashmap *map) {
     }
 }
 
+void hash_print_cond(hashmap *map) {
+#define WID 1
+#define WIDSTR "1"
+#define ROWLEN 80
+#define N_PER_ROW ((ROWLEN + 1) / (WID + 3))
+
+    size_t num = 0;
+    for (size_t i = 0; i < sizes[map->size_idx]; i++) {
+        size_t count = 0;
+        struct hash_node *n = map->buckets[i].first;
+        while (n != NULL) {
+            count++;
+            n = n->next;
+        }
+        if (count == 0) {
+            printf("[ ] ");
+        }
+        else {
+            printf("[%" WIDSTR "." WIDSTR "lu] ", count);
+        }
+        if (++num == N_PER_ROW) {
+            num = 0;
+            printf("\n");
+        }
+    }
+    if (num != 0) {
+        printf("\n");
+    }
+
+#undef WID
+#undef WIDSTR
+#undef ROWLEN
+#undef N_PER_ROW
+}

@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VERBOSE
 #include "../t_assert.h"
 #include "../hashmap.h"
 #include "../vprint.h"
@@ -38,7 +39,7 @@ int main() {
     assert(hash_delete(&map, str1), 0);
     assert((long) hash_get(&map, str1), (long) NULL);
 
-#define SIZE 400
+#define SIZE (3 * 769 / 4 + 1)
     char *bufs[SIZE];
     for (size_t i = 0; i < SIZE; i++) {
         bufs[i] = (char*) malloc(8);
@@ -58,8 +59,6 @@ int main() {
 
     hash_free(&map);
 
-
-
     assert(hash_init(&map, &ptr_hash, &ptr_cmp), 0);
 
     void *ptrs[SIZE];
@@ -73,7 +72,7 @@ int main() {
         }
         assert(map.size, i + 1);
     }
-    v_ensure(hash_print(&map));
+    v_ensure(hash_print_cond(&map));
 
     for (size_t i = 0; i < SIZE; i++) {
         free(ptrs[i]);

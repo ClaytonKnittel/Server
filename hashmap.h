@@ -203,6 +203,12 @@ void* hash_get(hashmap *map, const void* k);
  */
 void hash_print(hashmap *map);
 
+/*
+ * prints the hashtable in a condensed form in which only the number of
+ * elements in each bucket is shown
+ */
+void hash_print_cond(hashmap *map);
+
 
 
 // makes str_hash

@@ -11,7 +11,7 @@ endif
 
 DIR="$(shell pwd)/"
 
-CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG -D__DIR__=\"$(DIR)\" $(FEAT_TEST_MACROS)
+CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG -D__USER__=\"$(USER)\" -D__DIR__=\"$(DIR)\" $(FEAT_TEST_MACROS)
 
 MAIN=main
 TEST_FOLDER=test
