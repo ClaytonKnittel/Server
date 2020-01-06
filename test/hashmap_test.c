@@ -1,9 +1,60 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../t_assert.h"
-#include "../hashmap.h"
-#include "../vprint.h"
+#include "../src/t_assert.h"
+#include "../src/hashmap.h"
+#include "../src/vprint.h"
+
+
+void hash_print(hashmap *map) {
+    for (size_t i = 0; i < sizes[map->size_idx]; i++) {
+        struct hash_node *n = map->buckets[i].first;
+        if (n != NULL) {
+            printf("[%7lu]\t", i);
+            while (n != NULL) {
+                printf("\"%s\" -> %lu\t", (char*) n->k, *(size_t*) n->v);
+                n = n->next;
+            }
+            printf("\n");
+        }
+    }
+}
+
+void hash_print_cond(hashmap *map) {
+#define WID 1
+#define WIDSTR "1"
+#define ROWLEN 76
+#define N_PER_ROW ((ROWLEN + 1) / (WID + 3))
+
+    size_t num = 0;
+    for (size_t i = 0; i < sizes[map->size_idx]; i++) {
+        size_t count = 0;
+        struct hash_node *n = map->buckets[i].first;
+        while (n != NULL) {
+            count++;
+            n = n->next;
+        }
+        if (count == 0) {
+            printf("[ ] ");
+        }
+        else {
+            printf("[%" WIDSTR "." WIDSTR "lu] ", count);
+        }
+        if (++num == N_PER_ROW) {
+            num = 0;
+            printf("\n");
+        }
+    }
+    if (num != 0) {
+        printf("\n");
+    }
+
+#undef WID
+#undef WIDSTR
+#undef ROWLEN
+#undef N_PER_ROW
+}
+
 
 
 int main() {

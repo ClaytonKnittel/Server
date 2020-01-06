@@ -1,4 +1,0 @@
-Num cpus: 1
-Server listening on port: 172.31.33.9:80
-thread 0 begin
-Closing server on fd 3

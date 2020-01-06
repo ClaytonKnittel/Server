@@ -48,11 +48,6 @@
         return (type1) hash_get(map, (const void*) k);                     \
     }
 
-#define __HASH_MAKE_PRINT(name) \
-    static __inline void name ## _hash_print(hashmap *map) { \
-        hash_print(map);                                     \
-    }
-
 
 #define HASH_MAKE_TYPED(type1, type2, name) \
     typedef hashmap name ## _hashmap;       \
@@ -61,8 +56,7 @@
     __HASH_MAKE_INSERT(type1, type2, name)  \
     __HASH_MAKE_REMAP(type1, type2, name)   \
     __HASH_MAKE_DELETE(type1,  name)        \
-    __HASH_MAKE_GET(type1,  name)           \
-    __HASH_MAKE_PRINT(name)
+    __HASH_MAKE_GET(type1,  name)
 
 
 
@@ -197,17 +191,6 @@ int hash_delete(hashmap *map, const void* k);
  */
 void* hash_get(hashmap *map, const void* k);
 
-
-/*
- * prints the hashtable, for debugging purposes
- */
-void hash_print(hashmap *map);
-
-/*
- * prints the hashtable in a condensed form in which only the number of
- * elements in each bucket is shown
- */
-void hash_print_cond(hashmap *map);
 
 
 

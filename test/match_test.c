@@ -2,12 +2,98 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../augbnf.h"
-#include "../hashmap.h"
-#include "../t_assert.h"
-#include "../match.h"
-#include "../util.h"
-#include "../vprint.h"
+#include "../src/augbnf.h"
+#include "../src/hashmap.h"
+#include "../src/t_assert.h"
+#include "../src/match.h"
+#include "../src/util.h"
+#include "../src/vprint.h"
+
+
+static unsigned count_;
+
+static void _bnf_print(token_t *patt, hashmap *seen) {
+    char *buf;
+    literal *lit;
+
+
+    unsigned *c = (unsigned*) malloc(sizeof(unsigned));
+    if (hash_insert(seen, patt, c) != 0) {
+        // already been seen
+        free(c);
+        return;
+    }
+    *c = count_++;
+
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        _bnf_print(&patt->node->token, seen);
+    }
+    if (patt->alt != NULL) {
+        _bnf_print(patt->alt, seen);
+    }
+    if (patt->next != NULL) {
+        _bnf_print(patt->next, seen);
+    }
+
+    /*if (!token_captures(patt)) {
+        return;
+    }*/
+    printf("p%u: %d*%d (tmp = %d) (r = %d)", *(unsigned*) hash_get(seen, patt),
+            patt->min, patt->max, patt->tmp, patt_ref_count((pattern_t*) patt));
+    if (token_captures(patt)) {
+        printf("(mid: %u) ", patt->match_idx);
+    }
+    printf("\t");
+    switch (patt_type(patt->node)) {
+        case TYPE_CC:
+            printf("<>");
+            break;
+        case TYPE_LITERAL:
+            lit = &patt->node->lit;
+            buf = (char*) malloc(lit->length + 1);
+            memcpy(buf, lit->word, lit->length);
+            buf[lit->length] = '\0';
+            printf("\"%s\"", buf);
+            free(buf);
+            break;
+        case TYPE_UNRESOLVED:
+            lit = &patt->node->lit;
+            buf = (char*) malloc(lit->length + 1);
+            memcpy(buf, lit->word, lit->length);
+            buf[lit->length] = '\0';
+            printf("%s", buf);
+            free(buf);
+            break;
+    }
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        printf("for p%u\t", *(unsigned*) hash_get(seen, &patt->node->token));
+    }
+    else {
+        printf(" (r %d)", patt_ref_count(patt->node));
+    }
+    if (patt->alt != NULL) {
+        printf(" or p%u:\t", *(unsigned*) hash_get(seen, patt->alt));
+    }
+    if (patt->next != NULL) {
+        printf("  to p%u:\t", *(unsigned*) hash_get(seen, patt->next));
+    }
+    printf("\n");
+}
+
+void bnf_print(token_t *patt) {
+    count_ = 0;
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+    _bnf_print(patt, &seen);
+
+    void *k;
+    unsigned *count;
+    hashmap_for_each(&seen, k, count) {
+        free(count);
+    }
+    hash_free(&seen);
+}
+
 
 
 

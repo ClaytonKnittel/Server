@@ -13,11 +13,11 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 
-#include "../get_ip_addr.h"
-#include "../util.h"
-#include "../vprint.h"
+#include "../src/get_ip_addr.h"
+#include "../src/util.h"
+#include "../src/vprint.h"
 //#define VERBOSE
-#include "../t_assert.h"
+#include "../src/t_assert.h"
 
 #define NUM_CONNECTIONS 128
 

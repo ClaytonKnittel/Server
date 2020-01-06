@@ -120,6 +120,16 @@
 #include "match.h"
 
 
+// we add an additional type of node which fits in the patter_t struct which
+// contains only a name and is to later be resolved when compiling the bnf
+#define TYPE_UNRESOLVED 0x3
+
+// because an unresolved node is just the name of the token it points to, we
+// can use the literal structure, as it is of the same form
+typedef literal unresolved;
+
+
+
 // error codes:
 enum {
     success = 0,
@@ -158,9 +168,4 @@ token_t* bnf_parsef(const char *bnf_path);
  */
 token_t* bnf_parseb(const char *buffer, size_t buf_size);
 
-
-/*
- * prints the pattern in bnf form
- */
-void bnf_print(token_t *);
 

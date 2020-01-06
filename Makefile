@@ -13,19 +13,23 @@ DIR="$(shell pwd)/"
 
 CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG -D__USER__=\"$(USER)\" -D__DIR__=\"$(DIR)\" $(FEAT_TEST_MACROS)
 
+# name of c file containing main method
 MAIN=main
+SDIR=src
+ODIR=.obj
 TEST_FOLDER=test
 
-SRC=$(wildcard *.c)
-OBJ=$(patsubst %.c,.obj/%.o,$(SRC))
-DEP=$(wildcard *.h)
+
+SRC=$(wildcard $(SDIR)/*.c)
+OBJ=$(patsubst $(SDIR)/%.c,$(ODIR)/%.o,$(SRC))
+DEP=$(wildcard $(SDIR)/*.h)
 
 TSRC=$(wildcard $(TEST_FOLDER)/*.c)
-TOBJ=$(patsubst $(TEST_FOLDER)/%.c,.obj/$(TEST_FOLDER)/%.o,$(TSRC))
+TOBJ=$(patsubst $(TEST_FOLDER)/%.c,$(ODIR)/$(TEST_FOLDER)/%.o,$(TSRC))
 TDEP=$(wildcard $(TEST_FOLDER)/*.h)
 TEXES=$(patsubst %.c,%,$(TSRC))
 
-OBJ_DEP=$(filter-out .obj/$(MAIN).o, $(OBJ))
+OBJ_DEP=$(filter-out $(ODIR)/$(MAIN).o, $(OBJ))
 
 
 CC=gcc -MMD -MP
@@ -42,14 +46,17 @@ $(TEST_FOLDER): $(TEXES)
 $(EXE): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LIBS)
 
-.obj/%.o: %.c
+$(ODIR)/%.o: $(SDIR)/%.c
 	$(CC) $(CFLAGS) $< -o $@
 
-$(TEXES): $(TEST_FOLDER)/% : .obj/$(TEST_FOLDER)/%.o $(OBJ_DEP)
+$(TEXES): $(TEST_FOLDER)/% : $(ODIR)/$(TEST_FOLDER)/%.o $(OBJ_DEP)
 	$(CC) $< $(OBJ_DEP) -o $@ $(LIBS)
+
+$(ODIR)/$(TEST_FOLDER)/%.o: $(TEST_FOLDER)/%.c
+	$(CC) $(CFLAGS) $< -o $@
 
 -include $(wildcard .obj/*.d)
 
 .PHONY: clean
 clean:
-	rm -f .obj/*.o .obj/*.d .obj/$(TEST_FOLDER)/*.o .obj/$(TEST_FOLDER)/*.d $(EXE) $(TEXES)
+	rm -f $(ODIR)/*.o $(ODIR)/*.d $(ODIR)/$(TEST_FOLDER)/*.o $(ODIR)/$(TEST_FOLDER)/*.d $(EXE) $(TEXES)

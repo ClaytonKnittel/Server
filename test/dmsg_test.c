@@ -8,11 +8,11 @@
 #include <fcntl.h>
 #include <string.h>
 
-#include "../vprint.h"
-#include "../dmsg.h"
+#include "../src/vprint.h"
+#include "../src/dmsg.h"
 
 //#define VERBOSE
-#include "../t_assert.h"
+#include "../src/t_assert.h"
 
 
 // attempts to first write list to a temporary file,
