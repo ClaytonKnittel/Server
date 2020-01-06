@@ -16,8 +16,9 @@
 #include "../src/get_ip_addr.h"
 #include "../src/util.h"
 #include "../src/vprint.h"
+
 //#define VERBOSE
-#include "../src/t_assert.h"
+#include "t_assert.h"
 
 #define NUM_CONNECTIONS 128
 

@@ -2,9 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "t_assert.h"
+
 #include "../src/augbnf.h"
 #include "../src/hashmap.h"
-#include "../src/t_assert.h"
 #include "../src/match.h"
 #include "../src/util.h"
 #include "../src/vprint.h"

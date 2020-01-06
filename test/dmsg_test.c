@@ -12,7 +12,7 @@
 #include "../src/dmsg.h"
 
 //#define VERBOSE
-#include "../src/t_assert.h"
+#include "t_assert.h"
 
 
 // attempts to first write list to a temporary file,

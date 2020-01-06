@@ -1,7 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../src/t_assert.h"
+#include "t_assert.h"
+
 #include "../src/hashmap.h"
 #include "../src/vprint.h"
 
