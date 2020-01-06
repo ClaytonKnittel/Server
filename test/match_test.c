@@ -12,7 +12,7 @@
 
 static unsigned count_;
 
-static void _bnf_print(token_t *patt, hashmap *seen) {
+void _bnf_print(token_t *patt, hashmap *seen) {
     char *buf;
     literal *lit;
 
@@ -94,6 +94,192 @@ void bnf_print(token_t *patt) {
     hash_free(&seen);
 }
 
+
+
+
+#define CON_ERR(msg, ...) \
+    vprintf(P_RED "BNF Consistency Checker failed " P_RESET msg, ## __VA_ARGS__)
+
+
+// marked rigth before a token recurses to its children (to check for cycles),
+// and unmarked after processing of this token and all of its descendents has
+// completed
+#define PROCESSING 1
+
+// set after processing of a sub-token, all elements within the sub-token are
+// to be marked as NON_REFERENCEABLE, which means that if we later find that
+// a token references this token, there exists a reference to a token that is
+// meant to be entirely self-contained
+#define NON_REFERENCEABLE 2
+
+// set for any token which is the alt token of some other token, used to check
+// that no token which is an alt is referenced by more than 1 other token
+#define IS_ALT 4
+
+
+static void mark_processing(token_t *t) {
+    t->tmp |= PROCESSING;
+}
+static void unmark_processing(token_t *t) {
+    t->tmp &= ~PROCESSING;
+}
+
+static int is_processing(token_t *t) {
+    return (t->tmp & PROCESSING) != 0;
+}
+
+static void mark_non_referenceable(token_t *t) {
+    t->tmp |= NON_REFERENCEABLE;
+}
+
+static int is_non_referenceable(token_t *t) {
+    return (t->tmp & NON_REFERENCEABLE) != 0;
+}
+
+static void mark_alt(token_t *t) {
+    t->tmp |= IS_ALT;
+}
+
+static int is_alt(token_t *t) {
+    return (t->tmp & IS_ALT) != 0;
+}
+
+
+int _bnf_consistency_check(token_t *patt, token_t *terminater,
+        hashmap *counters) {
+    int ret = 0;
+
+    if (is_non_referenceable(patt)) {
+        CON_ERR("Reference to token from subtoken which was already processed "
+                "found, at %p\n", patt);
+        return -1;
+    }
+    if (is_processing(patt)) {
+        // cycle detected
+        CON_ERR("Cycle found in FSM on node %p\n", patt);
+        return -1;
+    }
+    if (is_non_referenceable(patt)) {
+        CON_ERR("Reference to token in submodule found, either the subtoken "
+                "is not entirely self-contained, or some external token "
+                "is illegally referencing it\n");
+        return -1;
+    }
+
+    if (patt->next == NULL && terminator != NULL) {
+        // we have reached a terminating state within a sub-pattern of a token
+        CON_ERR("Reached a terminating state within a subtoken\n");
+        return -1;
+    }
+
+    unsigned *ref_count = (unsigned*) malloc(sizeof(unsigned));
+    if (hash_insert(counters, patt, ref_count) != 0) {
+        // we have already visited this token
+        free(ref_count);
+        return 0;
+    }
+
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        // need to fully recurse on submodule
+        hashmap subcounters;
+        hash_init(&subcounters, &ptr_hash, &ptr_cmp);
+
+        ret = _bnf_consistency_check(&patt->node->token, patt, &subcounters);
+        
+        token_t *subtoken;
+        unsigned *counter;
+        // and now add back each of the counters to 
+        hashmap_for_each(&subcounters, subtoken, counter) {
+            if (hash_insert(counters, subtoken, counter) != 0) {
+                free(counter);
+                if (ret == 0) {
+                    // found a node we have already visited, this means there
+                    // was a second reference to this submodule, which means
+                    // it is not entirely self-contained
+                    CON_ERR("Reference to token %p in submodule of %p already "
+                            "exists\n", patt, subtoken);
+                    ret = -1;
+                }
+            }
+            // we are not allowed to ever refer to this token again since it's
+            // in a submodule
+            mark_non_referenceable(subtoken);
+        }
+        hash_free(&subcounters);
+    }
+    else {
+        // this is a token pointing to a basic pattern, either a literal or
+        // char class. Regardless, we just need to add it to the ref count
+        // map for ref count checking
+        unsigned *basic_ref_count;
+        if ((basic_ref_count = hash_get(counters, patt->node)) == NULL) {
+            basic_ref_count = (unsigned*) malloc(sizeof(unsigned));
+            if (hash_insert(counters, patt->node, basic_ref_count)) {
+                // what?
+                free(basic_ref_count);
+                CON_ERR("Weird hashmap err, could not insert element which "
+                        "did not exist\n");
+                ret = -1;
+            }
+        }
+        (*basic_ref_count)++;
+    }
+
+    if (ret == 0 && patt->next != terminator) {
+        // only need to check next if it is not the terminator
+        ret = _bnf_consistency_check(patt->next, terminator, counters);
+    }
+    if (ret == 0 && patt->alt != NULL) {
+        ret = _bnf_consistency_check(patt->alt, terminator, counters);
+        // if and only if this is referenced by any other token outside of
+        // "patt" and, potentially, the tokens within the submodule its node
+        // points to (if its node is itself a token) then, assuming the
+        // reference counts are correct, the reference count of this pattern
+        // would not be equal here. If any other token which is reachable
+        // via patt->alt references back to patt->alt, then the above
+        // recursive call would detect a cycle. So, then, the only way for a
+        // token to illegally refer to patt->alt would be if the current
+        // reference count is not the total reference count. If it is detected
+        // that they are equal here, but in reality there is another token
+        // referring to this one here, then the reference count check performed
+        // at the end will detect an error
+        unsigned *alt_ref_count = (unsigned*) hash_get(counters, patt->alt);
+        if (patt_ref_count(patt->alt) != *alt_ref_count) {
+            CON_ERR("Illegal reference to a token %p which is an alt of some "
+                    "token\n", patt->alt);
+            ret = -1;
+        }
+    }
+}
+
+/*
+ * performs a rigorous consistency check on the pattern, according to the
+ * standards explained at the top of src/match.h
+ */
+int bnf_consistency_check(token_t *patt) {
+    hashmap counters;
+    hash_init(&counters, &ptr_hash, &ptr_cmp);
+
+    int ret = _bnf_consistency_check(patt, NULL, &counters);
+
+    // reset all tmp fields and free all auxiliary data before returning
+    token_t *t;
+    unsigned *ref_count;
+    hashmap_for_each(&counters, t, ref_count) {
+        t->tmp = 0;
+
+        if (ret == 0 && patt_ref_count((pattern_t*) t) != *ref_count) {
+            // ref count incorrect in pattern
+            CON_ERR("ref count incorrect for token %p, expect %u, but found "
+                    "%u\n", t, patt_ref_count((pattern_t*) t), *ref_count);
+            ret = -1;
+        }
+        free(ref_count);
+    }
+
+    hash_free(&counters);
+    return ret;
+}
 
 
 
