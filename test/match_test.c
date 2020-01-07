@@ -15,8 +15,8 @@ static unsigned count_;
 
 void _bnf_print(token_t *patt, hashmap *seen) {
     char *buf;
+    char_class *cc;
     literal *lit;
-
 
     unsigned *c = (unsigned*) malloc(sizeof(unsigned));
     if (hash_insert(seen, patt, c) != 0) {
@@ -48,7 +48,14 @@ void _bnf_print(token_t *patt, hashmap *seen) {
     printf("\t");
     switch (patt_type(patt->node)) {
         case TYPE_CC:
-            printf("<>");
+            cc = &patt->node->cc;
+            printf("<");
+            for (unsigned char c = 0; c < NUM_CHARS; c++) {
+                if (cc_is_match(cc, c)) {
+                    printf("%c", c);
+                }
+            }
+            printf(">");
             break;
         case TYPE_LITERAL:
             lit = &patt->node->lit;
@@ -706,6 +713,7 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
@@ -902,7 +910,7 @@ int main() {
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
-        //bnf_print(ret);
+        bnf_print(ret);
         assert(tmp_check(ret), 0);
 
         size_info_t size = pattern_size(ret);

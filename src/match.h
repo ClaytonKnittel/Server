@@ -299,6 +299,20 @@ size_info_t pattern_size(token_t *patt);
 
 
 /*
+ * consolidate the given pattern as much as possible, by potentially
+ * merging multiple tokens into one, getting rid of redundant tokens,
+ * etc.
+ *
+ * this method will only work if the pattern is properly constructed,
+ * meaning it must pass the consistency checker in test/match_test.c.
+ * This does not have any sort of check for this and may produce undefined,
+ * and potentially catastrophic, results if called on a pattern which is not
+ * properly constructed
+ */
+void pattern_consolidate(token_t *patt);
+
+
+/*
  * connects patt to pattern "to", meaning each node in patt with a
  * next pointer to NULL is set to point to "to". This is effectively
  * saying that rule "patt" must be followed by rule "to"

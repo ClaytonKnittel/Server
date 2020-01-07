@@ -282,6 +282,171 @@ size_info_t pattern_size(token_t *patt) {
 
 
 
+/*
+ * removes a reference to the pattern by decreasing the reference count of the
+ * pattern and freeing the pattern if its reference count is now 0
+ */
+static void _safe_free(pattern_t *patt) {
+    patt_ref_dec(patt);
+    if (patt_ref_count(patt) == 0) {
+        free(patt);
+    }
+}
+
+
+
+void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
+
+    if (patt == terminator) {
+        // then we have looped back to the parent token which we are recursing
+        // from, so we can stop
+        return;
+    }
+    if (hash_insert(seen, patt, NULL) != 0) {
+        // we have already consolidated this token, so we can stop
+        return;
+    }
+
+    _pattern_consolidate(patt->next, terminator, seen);
+
+    if (patt->alt != NULL) {
+        _pattern_consolidate(patt->alt, terminator, seen);
+    }
+
+    if (patt_type(patt->node) == TYPE_TOKEN) {
+        _pattern_consolidate(&patt->node->token, patt, seen);
+    }
+
+    // first, if this token points to a single-character literal or a character
+    // class and is proceeded by a single-character literal or a character
+    // class which has the same next pointer, then merge the two into one
+    // character class
+#define MERGEABLE_LIT(node) \
+    (patt_type(node) == TYPE_LITERAL && node->lit.length == 1)
+
+    token_t *alt = patt->alt;
+    // we can merge with alt only if either both patt and alt are required
+    // exactly once (min == max == 1) or both are optional
+    if (alt != NULL && alt->next == patt->next &&
+            (alt->max == 1 && patt->max == 1) && alt->min == patt->min) {
+
+        if (MERGEABLE_LIT(alt->node)) {
+            if (MERGEABLE_LIT(patt->node)) {
+                char_class *cc = (char_class*) make_char_class();
+                literal *patt_lit = &patt->node->lit;
+                literal *alt_lit = &alt->node->lit;
+
+                // allow the two characters from patt and alt
+                cc_allow(cc, patt_lit->word[0]);
+                cc_allow(cc, alt_lit->word[0]);
+
+                // we are now done with both alt_lit and patt_lit
+                _safe_free((pattern_t*) patt_lit);
+                _safe_free((pattern_t*) alt_lit);
+
+                // and now make token point to cc
+                patt->node = (pattern_t*) cc;
+                patt_ref_inc((pattern_t*) cc);
+
+                // we are replacing both patt and alt with just patt, so
+                // set the alt of patt to alt's alt
+                patt->alt = alt->alt;
+
+                // we don't need to set patt-next since we already verified
+                // that patt->next == alt->next, however we still have one less
+                // reference to next since we are freeing alt
+                if (alt->next != NULL) {
+                    patt_ref_dec((pattern_t*) alt->next);
+                }
+
+                // and now we can free alt
+                free(alt);
+            }
+            else if (patt_type(patt->node) == TYPE_CC) {
+                char_class *cc = &patt->node->cc;
+                literal *alt_lit = &alt->node->lit;
+
+                // allow the character from alt
+                cc_allow(cc, alt_lit->word[0]);
+
+                // we are now done with alt_lit
+                _safe_free((pattern_t*) alt_lit);
+
+                // need to set patt's alt to the alt's alt
+                patt->alt = alt->alt;
+
+                // we have one less pointer to next
+                if (alt->next != NULL) {
+                    patt_ref_dec((pattern_t*) alt->next);
+                }
+
+                // and now we can free alt
+                free(alt);
+            }
+        }
+        else if (patt_type(alt->node) == TYPE_CC) {
+            if (MERGEABLE_LIT(patt->node)) {
+                literal *patt_lit = &patt->node->lit;
+                char_class *cc = &alt->node->cc;
+
+                // allow the character from patt
+                cc_allow(cc, patt_lit->word[0]);
+
+                // we are done with patt_lit
+                _safe_free((pattern_t*) patt_lit);
+
+                // we need to move the char class to patt, and since we are
+                // gaining one reference to cc here and losing one by removing
+                // alt, we don't need to modify its reference count
+                patt->node = (pattern_t*) cc;
+                
+                // need to set patt's alt to the alt's alt
+                patt->alt = alt->alt;
+
+                // we have one less pointer to next
+                if (alt->next != NULL) {
+                    patt_ref_dec((pattern_t*) alt->next);
+                }
+
+                // and now we can free alt
+                free(alt);
+            }
+            else if (patt_type(patt->node) == TYPE_CC) {
+                char_class *patt_cc = &patt->node->cc;
+                char_class *alt_cc = &alt->node->cc;
+
+                // merge the two char classes into patt_cc
+                cc_allow_from(patt_cc, alt_cc);
+
+                // and now we are done with alt_cc
+                _safe_free((pattern_t*) alt_cc);
+
+                // need to set patt's alt to the alt's alt
+                patt->alt = alt->alt;
+
+                // we have one less pointer to next
+                if (alt->next != NULL) {
+                    patt_ref_dec((pattern_t*) alt->next);
+                }
+
+                // and now we can free alt
+                free(alt);
+            }
+        }
+    }
+}
+
+
+void pattern_consolidate(token_t *patt) {
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+
+    _pattern_consolidate(patt, NULL, &seen);
+
+    hash_free(&seen);
+}
+
+
 
 #define SEEN 1
 
