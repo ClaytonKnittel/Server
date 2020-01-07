@@ -380,10 +380,9 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
     struct http_header_match match;
 
-    /*int ret = pattern_match(http_header, buf,
+    int ret = pattern_match(http_header, buf,
             sizeof(struct http_header_match) / sizeof(match_t),
-            (match_t*) &match);*/
-    int ret = MATCH_FAIL;
+            (match_t*) &match);
 
     if (ret == MATCH_FAIL) {
         // badly formatted uri

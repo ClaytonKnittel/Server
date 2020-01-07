@@ -174,7 +174,6 @@ void close_server(struct server *server) {
     while (client != server_as_client_node(server)) {
         next = client->next;
         if (close_client(client) == 0) {
-            vprintf(P_YELLOW "freed %p\n" P_RESET, client);
             // only free client if close succeeded
             free(client);
         }
@@ -257,7 +256,6 @@ static int accept_connection(struct server *server) {
     }
 
     client = (struct client *) malloc(sizeof(struct client));
-    printf(P_YELLOW "mallocced %p\n" P_RESET, client);
     if (client == NULL) {
         return -1;
     }
@@ -336,7 +334,6 @@ static int disconnect(struct server *server, struct client *client, int thread) 
         rel_list_lock(server);
 
         free(client);
-        printf(P_YELLOW "freed %p\n" P_RESET, client);
     }
     else {
         printf("Failed to cose client %d\n", client->connfd);
