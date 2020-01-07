@@ -8,7 +8,10 @@
 #include "http.h"
 
 struct client {
-    LIST_ENTRY(client) list_entry;
+    // construct for doubly-linked list of clients
+    struct {
+        struct client *next, *prev;
+    };
 
     struct http http;
 

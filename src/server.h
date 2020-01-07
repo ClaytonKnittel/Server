@@ -16,7 +16,9 @@ struct server {
     struct mt_context mt;
 
     // list of all connected clients
-    LIST_HEAD(client_list_head, client) client_list;
+    struct {
+        struct client *first, *last;
+    } client_list;
     // spinlock on client_list
     int client_list_lock;
 

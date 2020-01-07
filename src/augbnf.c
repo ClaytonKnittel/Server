@@ -1150,6 +1150,8 @@ static void free_state(parse_state *state) {
  * initializes hashmap and then propagates calls to rule_parse
  */
 static token_t* bnf_parse(parse_state *state) {
+    token_t *comp_rule;
+
     if (str_hash_init(&state->rules) != 0) {
         dprintf(STDERR_FILENO, "Unable to initialize hashmap\n");
         return NULL;
@@ -1162,21 +1164,18 @@ static token_t* bnf_parse(parse_state *state) {
         hash_free(&state->rules);
         return NULL;
     }
+    pattern_consolidate(state->main_rule);
 
     // and now parse the remaining rules
-    while (rule_parse(state) != NULL);
+    while ((comp_rule = rule_parse(state)) != NULL) {
+        pattern_consolidate(comp_rule);
+    }
     if (errno != eof) {
         free_state(state);
         return NULL;
     }
     // successfully parsed everything
     errno = 0;
-
-    char *name;
-    token_t *rule;
-    hashmap_for_each(&state->rules, name, rule) {
-        pattern_consolidate(rule);
-    }
 
     // try to recursively resolve all symbols
     int ret = resolve_symbols(state);

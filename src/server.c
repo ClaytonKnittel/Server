@@ -40,11 +40,13 @@ typedef struct client epoll_data_ptr_t;
 // server loop
 #define MAX_READ_SIZE 4096
 
-
-#define UNLOCKED 1
 #define LOCKED 0
+#define UNLOCKED 1
 
 
+/*
+ * locks the list lock with the passed in value, usually the thread id
+ */
 static __inline void acq_list_lock(struct server *server) {
     int unlocked = UNLOCKED;
     // spin until unlocked
@@ -57,6 +59,31 @@ static __inline void acq_list_lock(struct server *server) {
 static __inline void rel_list_lock(struct server *server) {
     server->client_list_lock = UNLOCKED;
 }
+
+
+static void list_insert(struct server *server, struct client *client) {
+    client->next = server->client_list.last->next;
+    client->prev = server->client_list.last;
+    server->client_list.last->next = client;
+    server->client_list.last = client;
+}
+
+static void list_remove(struct client *client) {
+    client->next->prev = client->prev;
+    client->prev->next = client->next;
+}
+
+#define server_as_client_node(server_ptr) \
+    ((struct client *) (((char*) (server_ptr)) \
+            + offsetof(struct server, client_list) \
+            - offsetof(struct client, next)))
+
+
+#define list_for_each(server_ptr, client_var) \
+    for ((client_var) = (server_ptr)->client_list.first; \
+            (client_var) != server_as_client_node(server_ptr); \
+            (client_var) = (client_var)->next)
+
 
 
 static int connect_server(struct server *server);
@@ -100,7 +127,11 @@ int init_server3(struct server *server, int port, int backlog) {
 
     clear_mt_context(&server->mt);
 
-    LIST_INIT(&server->client_list);
+    // make client_list circularly linked, treat list_head just as any other
+    // list node
+    server->client_list.first = server->client_list.last
+        = server_as_client_node(server);
+
     server->client_list_lock = UNLOCKED;
 
     if (connect_server(server) == -1) {
@@ -122,9 +153,13 @@ void print_server_params(struct server *server) {
 }
 
 void close_server(struct server *server) {
-    struct client *client;
+    struct client *client, *next;
     // TODO this may be called in an interrupt context
     vprintf("Closing server on fd %d\n", server->sockfd);
+
+    if (server->client_list_lock == LOCKED) {
+        
+    }
 
     server->running = 0;
 
@@ -135,20 +170,22 @@ void close_server(struct server *server) {
     // join with all threads
     exit_mt_routine(&server->mt);
 
+    client = server->client_list.first;
+    while (client != server_as_client_node(server)) {
+        next = client->next;
+        if (close_client(client) == 0) {
+            vprintf(P_YELLOW "freed %p\n" P_RESET, client);
+            // only free client if close succeeded
+            free(client);
+        }
+        client = next;
+    }
+
     CHECK(close(server->sockfd));
     CHECK(close(server->qfd));
     CHECK(close(server->term_read));
     CHECK(close(server->term_write));
 
-    LIST_FOREACH(client, &server->client_list, list_entry) {
-        vprintf("freeing client, fd %d, log\n");
-        dmsg_print(&client->log, STDERR_FILENO);
-        if (close_client(client) == 0) {
-            vprintf("freed %d\n", client->connfd);
-            // only free client if close succeeded
-            free(client);
-        }
-    }
 }
 
 
@@ -220,6 +257,7 @@ static int accept_connection(struct server *server) {
     }
 
     client = (struct client *) malloc(sizeof(struct client));
+    printf(P_YELLOW "mallocced %p\n" P_RESET, client);
     if (client == NULL) {
         return -1;
     }
@@ -261,13 +299,7 @@ static int accept_connection(struct server *server) {
 
     acq_list_lock(server);
     // if all succeeded, then add the client to the list of all clients
-    LIST_INSERT_HEAD(&server->client_list, client, list_entry);
-    
-    printf("now list is [");
-    LIST_FOREACH(client, &server->client_list, list_entry) {
-        printf("%d, ", client->connfd);
-    }
-    printf("]\n");
+    list_insert(server, client);
     rel_list_lock(server);
 
     return 0;
@@ -300,14 +332,11 @@ static int disconnect(struct server *server, struct client *client, int thread) 
     if (close_client(client) == 0) {
         // only free client if close succeeded
         acq_list_lock(server);
-        LIST_REMOVE(client, list_entry);
-        printf("now list is [");
-        LIST_FOREACH(client, &server->client_list, list_entry) {
-            printf("%d, ", client->connfd);
-        }
-        printf("]\n");
+        list_remove(client);
         rel_list_lock(server);
+
         free(client);
+        printf(P_YELLOW "freed %p\n" P_RESET, client);
     }
     else {
         printf("Failed to cose client %d\n", client->connfd);

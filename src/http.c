@@ -19,6 +19,7 @@
 #include "vprint.h"
 
 
+
 /* 
  * protocol reference page:
  * https://www.w3.org/Protocols/HTTP/1.1/rfc2616bis/draft-lafon-rfc2616bis-03.html
@@ -227,7 +228,6 @@ static void init_extensions() {
 }
 
 
-
 int http_init() {
     http_header = bnf_parsef("grammars/http_header.bnf");
     if (http_header == NULL) {
@@ -380,9 +380,10 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
     struct http_header_match match;
 
-    int ret = pattern_match(http_header, buf,
+    /*int ret = pattern_match(http_header, buf,
             sizeof(struct http_header_match) / sizeof(match_t),
-            (match_t*) &match);
+            (match_t*) &match);*/
+    int ret = MATCH_FAIL;
 
     if (ret == MATCH_FAIL) {
         // badly formatted uri
