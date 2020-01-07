@@ -425,6 +425,11 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
     p->fd = open(fullpath, O_RDONLY);
 
+    if (p->fd == -1) {
+        // no such file
+        return -1;
+    }
+
     vprintf("opened %s\n", fullpath);
 
     return 0;

@@ -110,7 +110,6 @@ int init(struct server *server, int argc, char *argv[]) {
                         "reason: %s\n", optarg, strerror(errno));
                 return -1;
             }
-            printf("fd %d\n", output_fd);
             break;
         case 'h':
         case '?':
@@ -167,12 +166,16 @@ int main(int argc, char *argv[]) {
         }
         return ret;
     }
+    
+    printf("Begin server output:");
 
     if (output_fd != -1) {
         // redirect both stdout and stderr to output_fd
         dup2(output_fd, STDOUT_FILENO);
         dup2(output_fd, STDERR_FILENO);
     }
+
+    printf("\n");
 
     print_server_params(&server);
 

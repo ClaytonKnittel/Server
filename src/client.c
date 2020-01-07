@@ -13,7 +13,7 @@
 
 
 int accept_client(struct client *client, int sockfd, int flags) {
-    socklen_t len = sizeof(client->sa);
+    socklen_t len = sizeof(struct sockaddr);
     memset(&client->sa, 0, len);
     client->connfd = accept(sockfd, &client->sa, &len);
 

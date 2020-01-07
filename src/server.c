@@ -141,6 +141,8 @@ void close_server(struct server *server) {
     CHECK(close(server->term_write));
 
     LIST_FOREACH(client, &server->client_list, list_entry) {
+        vprintf("freeing client, fd %d, log\n");
+        dmsg_print(&client->log, STDERR_FILENO);
         if (close_client(client) == 0) {
             vprintf("freed %d\n", client->connfd);
             // only free client if close succeeded
@@ -260,6 +262,12 @@ static int accept_connection(struct server *server) {
     acq_list_lock(server);
     // if all succeeded, then add the client to the list of all clients
     LIST_INSERT_HEAD(&server->client_list, client, list_entry);
+    
+    printf("now list is [");
+    LIST_FOREACH(client, &server->client_list, list_entry) {
+        printf("%d, ", client->connfd);
+    }
+    printf("]\n");
     rel_list_lock(server);
 
     return 0;
@@ -293,8 +301,16 @@ static int disconnect(struct server *server, struct client *client, int thread) 
         // only free client if close succeeded
         acq_list_lock(server);
         LIST_REMOVE(client, list_entry);
+        printf("now list is [");
+        LIST_FOREACH(client, &server->client_list, list_entry) {
+            printf("%d, ", client->connfd);
+        }
+        printf("]\n");
         rel_list_lock(server);
         free(client);
+    }
+    else {
+        printf("Failed to cose client %d\n", client->connfd);
     }
 
 #ifdef DEBUG
