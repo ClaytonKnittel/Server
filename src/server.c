@@ -103,8 +103,6 @@ int init_server3(struct server *server, int port, int backlog) {
     LIST_INIT(&server->client_list);
     server->client_list_lock = UNLOCKED;
 
-    vprintf("Num cpus: %d\n", get_n_cpus());
-
     if (connect_server(server) == -1) {
         ret = -1;
     }

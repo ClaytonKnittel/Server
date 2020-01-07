@@ -10,5 +10,7 @@ test/*
 .temp.txt
 *.swp
 
+out.txt
+
 core.*
 vgcore.*
