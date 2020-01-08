@@ -410,7 +410,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             // skip over the terminating group identifier
             state->buf++;
 
-            if (min == max == 1) {
+            if (min == 1 && max == 1) {
                 // if this group is required exactly once, then there is no
                 // need to wrap it in a token
                 token = ret;
