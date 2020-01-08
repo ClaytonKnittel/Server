@@ -237,6 +237,10 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 #define GROUP_OR    0x2
     int rule_grouping = 0;
 
+    // temporary variables for holding min & max for a token before it has been
+    // allocated
+    int min, max;
+
     // the token to be returned, i.e. the token constructed in the first pass
     // through the loop
     token_t *ret = NULL;
@@ -247,14 +251,12 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
 #define RETURN_ERR(err_lvl) \
     errno = (err_lvl); \
-    pattern_free(token); \
     if (ret != NULL) { \
         pattern_free(ret); \
     } \
     return NULL
 
 #define PROPAGATE_ERR \
-    pattern_free(token); \
     if (ret != NULL) { \
         pattern_free(ret); \
     } \
@@ -278,20 +280,24 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
         // since the preceeding method modified only buf in state
         buf = state->buf;
 
-        token = (token_t*) make_token();
+        /*token = (token_t*) make_token();
         if (token == NULL) {
             errno = memory_error;
             if (ret != NULL) {
                 pattern_free(ret);
             }
             return token;
-        }
+        }*/
+        token = NULL;
+
+        // when they are both 0, this signifies they are uninitialized
+        min = max = 0;
 
         // search for quantifiers
         if (cc_is_match(&parsers.quantifier, *buf)) {
             // expect something of the form *, *<n>, <m>* or <m>*<n>
             if (*buf == '*') {
-                token->min = 0;
+                min = 0;
             }
             else {
                 char* m = buf;
@@ -302,25 +308,25 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                     RETURN_ERR(num_without_star);
                 }
                 *buf = '\0';
-                token->min = atoi(m);
+                min = atoi(m);
             }
             buf++;
             char* n = buf;
             buf = get_next_unmatching(&parsers.num, buf);
             if (n == buf) {
                 // no max
-                token->max = -1;
+                max = -1;
             }
             else {
-                token->max = atoi(n);
+                max = atoi(n);
             }
-            if (token->min == 0 && token->max == 0) {
+            if (min == 0 && max == 0) {
                 BNF_ERR("not allowed to have 0-quantity rule\n");
                 RETURN_ERR(zero_quantifier);
             }
-            if (token->max != -1 && token->min > token->max) {
+            if (max != -1 && min > max) {
                 BNF_ERR("max cannot be greater than min in quantifier rule "
-                        "(found %d*%d)\n", token->min, token->max);
+                        "(found %d*%d)\n", min, max);
                 RETURN_ERR(zero_quantifier);
             }
             buf = get_next_unmatching(&parsers.whitespace, buf);
@@ -332,6 +338,13 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
         // check for groupings
         state->buf = buf;
+
+        if (*buf != '[' && min == 0 && max == 0) {
+            // if min and max have not been set, and this is not an optional
+            // group then set them both to the default
+            min = max = 1;
+        }
+
         if (*buf == '{') {
             // skip over this group identifier
             state->buf++;
@@ -343,16 +356,22 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             // skip over the terminating group identifier
             state->buf++;
 
-            token->flags |= TOKEN_CAPTURE;
+            // we need to allocate a group token for capturing groups in order
+            // for capturing to work
+            token = (token_t*) make_capturing_token();
+
             token->match_idx = state->n_captures++;
 
             token->node = (pattern_t*) ret;
             patt_ref_inc((pattern_t*) ret);
             // connect ret back to token
             pattern_connect(ret, token);
+
+            token->min = min;
+            token->max = max;
         }
         else if (*buf == '[') {
-            if (token->min != 0 || token->max != 0) {
+            if (min != 0 || max != 0) {
                 BNF_ERR("not allowed to quantify optional group []\n");
                 RETURN_ERR(overspecified_quantifier);
             }
@@ -366,11 +385,19 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             // skip over the terminating group identifier
             state->buf++;
 
+            // TODO get rid of extra token by fully linking this to next token
+            // (pattern_connect and pattern_or it to next guy)
+            // need to allocate group token because this is optional
+            token = (token_t*) make_token();
+
             token->max = 1;
             token->node = (pattern_t*) ret;
             patt_ref_inc((pattern_t*) ret);
             // connect ret back to token
             pattern_connect(ret, token);
+
+            token->min = 0;
+            token->max = 1;
         }
         else if (*buf == '(') {
             // skip over this group identifier
@@ -383,10 +410,21 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             // skip over the terminating group identifier
             state->buf++;
 
-            token->node = (pattern_t*) ret;
-            patt_ref_inc((pattern_t*) ret);
-            // connect ret back to token
-            pattern_connect(ret, token);
+            if (min == max == 1) {
+                // if this group is required exactly once, then there is no
+                // need to wrap it in a token
+                token = ret;
+            }
+            else {
+                token = (token_t*) make_token();
+                token->node = (pattern_t*) ret;
+                patt_ref_inc((pattern_t*) ret);
+                // connect ret back to token
+                pattern_connect(ret, token);
+
+                token->min = min;
+                token->max = max;
+            }
         }
         else if (*buf == '"') {
             // literal
@@ -416,8 +454,12 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             pattern_t *lit = make_literal(word_len);
             memcpy(lit->lit.word, word, word_len);
 
+            token = (token_t*) make_token();
             token->node = lit;
             patt_ref_inc(lit);
+
+            token->min = min;
+            token->max = max;
         }
         else if (*buf == '\'') {
             // single-character literal
@@ -540,14 +582,17 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             pattern_t *lit = make_literal(1);
             lit->lit.word[0] = val;
 
+            token = (token_t*) make_token();
             token->node = lit;
             patt_ref_inc(lit);
+
+            token->min = min;
+            token->max = max;
         }
         else if (*buf == ';') {
             // comment: skip all characters until we reach the null terminator
             // at the end of the line
             state->buf = get_next_unmatching(&parsers.all, buf);
-            free(token);
             continue;
         }
         else {
@@ -571,8 +616,12 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             unres->type = TYPE_UNRESOLVED;
             memcpy(unres->lit.word, name, word_len);
 
+            token = (token_t*) make_token();
             token->node = unres;
             patt_ref_inc(unres);
+
+            token->min = min;
+            token->max = max;
         }
 
         buf = state->buf;
@@ -584,6 +633,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 // EOF reached, illegal condition
                 BNF_ERR("EOF reached while in enclosed group (either \"()\", "
                         "\"{}\" or \"[]\")\n");
+                pattern_free(token);
                 RETURN_ERR(unclosed_grouping);
             }
             buf = state->buf;
@@ -594,12 +644,6 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             buf = get_next_unmatching(&parsers.whitespace, buf);
         }
 
-        if (token->min == 0 && token->max == 0) {
-            // if min and max have not been set, then set them both to the
-            // default
-            token->min = token->max = 1;
-        }
-
         // check to make sure that, in an OR grouping, there is a | after the
         // token just processed (or it is the end of the line)
         if (rule_grouping == GROUP_OR) {
@@ -608,6 +652,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 BNF_ERR("missing '|' between tokens in an OR grouping, if "
                         "the two are to be interleaved, group with "
                         "parenthesis the ORs and ANDs separately\n");
+                pattern_free(token);
                 RETURN_ERR(and_or_mix);
             }
             // insert in list of nodes
@@ -620,6 +665,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 BNF_ERR("found '|' after tokens in an AND grouping, if "
                         "the two are to be interleaved, group with "
                         "parenthesis the ORs and ANDs separately\n");
+                pattern_free(token);
                 RETURN_ERR(and_or_mix);
             }
             // insert in list of nodes
