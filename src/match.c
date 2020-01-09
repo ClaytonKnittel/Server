@@ -193,47 +193,72 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 }
 
 
+// forward declaration
+/*void _pattern_free(pattern_t *patt);
 
-void _pattern_free(hashmap *seen, pattern_t *patt) {
-    token_t *token;
-    if (patt_type(patt) == TYPE_TOKEN) {
-        token = &patt->token;
+void _token_free(token_t *token) {
+    if (token->node != NULL) {
+        _pattern_free(token->node);
+    }
+    if (token->alt != NULL) {
+        _pattern_free(token->alt);
+    }
+    if (token->next != NULL) {
+        _pattern_free(token->next);
+    }
+}*/
 
-        if (hash_insert(seen, token, NULL) == 0) {
-            // only recurse if this is the first time seeing this node
+void _pattern_free(token_t *token) {
 
-            if (token->node != NULL) {
-                // TODO node is never null for fully constructed FSMs
-                patt_ref_dec(token->node);
-                _pattern_free(seen, token->node);
-            }
+    // need to record these now in case it is decreased in recursive calls, in
+    // those cases if it goes to 0, this token will be freed in the recursive
+    // call and should not be freed/accessed here
+    pattern_t *node, *alt, *next;
 
-            if (token->alt != NULL) {
-                patt_ref_dec((pattern_t*) token->alt);
-                _pattern_free(seen, (pattern_t*) token->alt);
-            }
+    node = token->node;
+    alt = (pattern_t*) token->alt;
+    next = (pattern_t*) token->next;
 
-            if (token->next != NULL) {
-                patt_ref_dec((pattern_t*) token->next);
-                _pattern_free(seen, (pattern_t*) token->next);
-            }
+    token->node = NULL;
+    token->alt = NULL;
+    token->next = NULL;
 
-            if (patt_ref_count(patt) == 0) {
-                free(token);
-            }
+    // free connections and set them to NULL so they won't be visited
+    // multiple times through this token
+    if (node != NULL) {
+        if (patt_type(node) == TYPE_TOKEN) {
+            _pattern_free(&node->token);
+        }
+        patt_ref_dec(node);
+        if (patt_ref_count(node) == 0) {
+            free(node);
         }
     }
-    else if (patt_ref_count(patt) == 0) {
-        free(patt);
+
+    if (alt != NULL) {
+        _pattern_free(&alt->token);
+        patt_ref_dec(alt);
+        if (patt_ref_count(alt) == 0) {
+            free(alt);
+        }
+    }
+
+    if (next != NULL) {
+        _pattern_free(&next->token);
+        patt_ref_dec(next);
+        if (patt_ref_count(next) == 0) {
+            free(next);
+        }
     }
 }
 
 void pattern_free(token_t *token) {
-    hashmap seen;
-    hash_init(&seen, &ptr_hash, &ptr_cmp);
+    // increase ref_count of this token by 1 so no token in _pattern_free frees
+    // it, and we can safely always free it here
+    patt_ref_inc((pattern_t*) token);
 
-    _pattern_free(&seen, (pattern_t*) token);
-    hash_free(&seen);
+    _pattern_free(token);
+    free(token);
 }
 
 
@@ -479,6 +504,9 @@ int pattern_connect(token_t *patt, token_t *to) {
         patt->next = to;
         patt_ref_inc((pattern_t*) to);
         ret = 0;
+    }
+    else if (patt->next == to) {
+        // don't recurse into to
     }
     else if (pattern_connect(patt->next, to) != -1) {
         ret = 0;

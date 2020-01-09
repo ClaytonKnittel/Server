@@ -46,6 +46,7 @@ void _bnf_print(token_t *patt, hashmap *seen) {
         printf("(mid: %u) ", patt->match_idx);
     }
     printf("\t");
+    printf("(0x%p) (r = %d)  ", patt->node, patt_ref_count(patt->node));
     switch (patt_type(patt->node)) {
         case TYPE_CC:
             cc = &patt->node->cc;
@@ -367,6 +368,27 @@ int tmp_check(token_t *token) {
 
 
 int main() {
+    /*{
+        char bnf1[] =
+            "rule1 = (\"a\" | \"ab\") \"d\"";
+
+        token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "abd", 0, NULL), 0);
+        assert(pattern_match(ret, "add", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "acbd", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bacd", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
+
+        pattern_free(ret);
+    }
+    exit(0);*/
+
 
     //silence_stdout();
     char_class m;
@@ -660,6 +682,7 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
 
         match_t match;
 
@@ -677,7 +700,6 @@ int main() {
         assert(match.eo, 5);
 
         pattern_free(ret);
-
 
 
         char bnf3[] =
@@ -832,6 +854,7 @@ int main() {
         pattern_free(ret);
 
     }
+
 
     // capturing groups again
     {
