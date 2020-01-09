@@ -146,7 +146,8 @@ typedef struct literal {
 
 
 typedef struct token {
-    // can either be TOKEN_CAPTURE or not (also is used by pattern_t for type)
+    // can either be TOKEN_CAPTURE or not (also is used by pattern_t for type
+    // and ref count)
     int flags;
 
     // lowest 3 bits can be used by algorithms for temporary data storage, but

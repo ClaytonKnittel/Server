@@ -523,8 +523,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 token = ret;
             }
             else {
-                if (ret->next == NULL && ret->alt == NULL &&
-                        (ret->min == ret->max || ret->min <= 1)) {
+                if (ret->next == NULL && ret->alt == NULL && ret->min <= 1) {
                     // then we can simply overwrite the repeat counters of ret
                     // rather than constuct another token to wrap it
 
@@ -538,7 +537,8 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                     // the following 2 multiplications, without any conditional
                     // logic needed
                     ret->min *= min;
-                    ret->max *= max;
+                    ret->max = max == -1 ? max :
+                        (ret->max == -1) ? ret->max : ret->max * max;
 
                     token = ret;
                 }

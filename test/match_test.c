@@ -592,6 +592,8 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        printf("\n");
+        bnf_print(ret);
 
         match_t matches[2];
 
@@ -670,6 +672,127 @@ int main() {
 
     }
 
+    // test capture consolidation
+    {
+        token_t *ret;
+
+        char bnf2[] =
+            " rule = \"my \" { \"dog\" } \" goes\"";
+
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+
+        match_t match;
+        assert(pattern_match(ret, "my dog goes", 1, &match), 0);
+        assert(match.so, 3);
+        assert(match.eo, 6);
+
+        pattern_free(ret);
+
+
+        char bnf3[] =
+            " rule = (2*3{'b'})";
+
+        ret = bnf_parseb(bnf3, sizeof(bnf3) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "b", 1, &match), MATCH_FAIL);
+        assert(pattern_match(ret, "bb", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 2);
+        assert(pattern_match(ret, "bbb", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 3);
+        assert(pattern_match(ret, "bbbb", 1, &match), MATCH_FAIL);
+
+        pattern_free(ret);
+
+
+        char bnf4[] =
+            " rule = 2*3 {0*'b'} ";
+
+        ret = bnf_parseb(bnf4, sizeof(bnf4) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 0);
+        assert(pattern_match(ret, "b", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 1);
+        assert(pattern_match(ret, "bb", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 2);
+        assert(pattern_match(ret, "bbb", 1, &match), 0);
+        assert(match.so, 0);
+        assert(match.eo, 3);
+
+        pattern_free(ret);
+        
+        
+        char bnf5[] =
+            " rule = 2* (4*'b') ";
+
+        ret = bnf_parseb(bnf5, sizeof(bnf5) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "b", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbbbbb", 0, NULL), 0);
+        assert(pattern_match(ret, "bbbbbbbbb", 0, NULL), 0);
+        assert(pattern_match(ret, "bbbbbbbbbb", 0, NULL), 0);
+
+        pattern_free(ret);
+
+
+
+        char bnf6[] =
+            " rule = 1* (4*4('b' | 'c')) ";
+
+        ret = bnf_parseb(bnf6, sizeof(bnf6) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+        bnf_print(ret);
+
+        assert(pattern_match(ret, "", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbb", 0, NULL), 0);
+        assert(pattern_match(ret, "bbbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbbbbb", 0, NULL), 0);
+        assert(pattern_match(ret, "bbbbbbbbb", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "bbbbbbbbbbbb", 0, NULL), 0);
+
+        pattern_free(ret);
+
+
+
+
+    }
+
     // test reading from file
     {
         token_t *ret;
@@ -706,9 +829,6 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
-
-        //bnf_print(ret);
-        //assert(tmp_check(ret), 0);
 
         size_info_t size = pattern_size(ret);
         printf("size of uri spec pattern: %lu tokens, %lu patterns\n",

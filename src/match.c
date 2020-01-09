@@ -316,9 +316,28 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
     }
 
 
-    // try elevation before recursing any
-    if (patt_type(patt->node) == TYPE_TOKEN && !token_captures(patt)) {
-        if (patt->min == 1 && patt->max == 1) {
+    // try elevation before recursing any, which we are only able to do if:
+    //  - neither patt nor patt->node captures, and either
+    //      - patt is once-required (min = max = 1)
+    //      - patt->node only connects back to patt (next = patt, alt = NULL)
+    //          and  is 1*n or 0*n, for some n (even infinity)
+    //  - only patt captures and patt->node is the only token encapsulated by
+    //      patt and patt->node is once-required
+    //
+    // if patt->node captures, we cannot gracefully elevate, as capturing
+    // tokens are slightly larger than regular ones, so it would need slightly
+    // more space than patt has to offer if it were to take its spot
+    if (patt_type(patt->node) == TYPE_TOKEN &&
+            !token_captures(&patt->node->token)) {
+
+        token_t *node = &patt->node->token;
+        int node_only = (node->next == patt && node->alt == NULL);
+
+        if ((!token_captures(patt) && (
+                    (patt->min == 1 && patt->max == 1) ||
+                     (node_only && node->min <= 1)))
+                || (node_only && node->min == 1 && node->max == 1)) {
+
             // if this is a once-required group, then just elevate the token
             // it contains
 
@@ -327,21 +346,33 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
             // alt. We know all references to patt->node have to be in the
             // subgraph contained by patt->node, as pattern's nodes are all
             // private
-            pattern_disconnect((token_t*) patt->node, patt);
-            if (patt_type(((token_t*) patt->node)->node) == TYPE_TOKEN) {
-                pattern_reconnect((token_t*) ((token_t*) patt->node)->node, (token_t*) patt->node, patt);
+            pattern_disconnect(node, patt);
+            if (patt_type((node)->node) == TYPE_TOKEN) {
+                pattern_reconnect((token_t*) node->node,
+                        (token_t*) patt->node, patt);
             }
 
             // save patt's connections
             token_t *next = patt->next;
             token_t *alt = patt->alt;
-            pattern_t *node = patt->node;
 
-            int ref_count = patt_ref_count((pattern_t*) patt);
+            // take whole flags because we need the capturing flag of patt
+            // to be preserved
+            int flags = patt->flags;
+            int match_idx = patt->match_idx;
+
+            // in every case, this is what we want to reassign min & max of the
+            // token to, since one of patt and node will be 0*1 or 1*1
+            int min = patt->min * node->min;
+            int max = (patt->max == -1) ? patt->max :
+                (node->max == -1) ? node->max : patt->max * node->max;
 
             // now copy over all of patt->node's data
-            *patt = patt->node->token;
-            patt_ref_set((pattern_t*) patt, ref_count);
+            *patt = *node;
+            patt->flags = flags;
+            patt->match_idx = match_idx;
+            patt->min = min;
+            patt->max = max;
 
             // and finally hook up the subgraph to patt's next and alt
             if (next != NULL) {
@@ -358,6 +389,9 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
 
             // and lastly free the old patt->node
             free(node);
+        }
+        else if (patt->min == 0 && patt->max == 1) {
+
         }
 
     }
@@ -387,7 +421,8 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
     // we can merge with alt only if either both patt and alt are required
     // exactly once (min == max == 1) or both are optional
     if (alt != NULL && alt->next == patt->next &&
-            (alt->max == 1 && patt->max == 1) && alt->min == patt->min) {
+            (alt->max == 1 && patt->max == 1) && alt->min == patt->min &&
+            !token_captures(patt) && !token_captures(alt)) {
 
         if (MERGEABLE_LIT(alt->node)) {
             if (MERGEABLE_LIT(patt->node)) {
@@ -504,7 +539,8 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
             patt_type(patt->node) == TYPE_LITERAL &&
             patt_type(next->node) == TYPE_LITERAL &&
             patt->min == patt->max && next->min == next->max &&
-            patt_ref_count((pattern_t*) next) == 1) {
+            patt_ref_count((pattern_t*) next) == 1 &&
+            !token_captures(patt) && !token_captures(next)) {
         
         int n = patt->max; // number of times to repeat patt
         int m = next->max; // number of times to repeat next
