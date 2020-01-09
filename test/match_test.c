@@ -1020,6 +1020,7 @@ int main() {
             }
         }
 
+        pattern_free(ret);
 
     }
 
