@@ -661,6 +661,7 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "clayton is cool", 0, NULL), 0);
         assert(pattern_match(ret, "claytoniscool", 0, NULL), MATCH_FAIL);
@@ -712,6 +713,7 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "0x1", 0, NULL), 0);
         assert(pattern_match(ret, "0x3f", 0, NULL), 0);
@@ -764,6 +766,7 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "a", 0, NULL), 0);
         assert(pattern_match(ret, "b", 0, NULL), 0);
@@ -1063,8 +1066,8 @@ int main() {
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
-        bnf_print(ret);
-        assert(tmp_check(ret), 0);
+        //bnf_print(ret);
+        //assert(tmp_check(ret), 0);
 
         size_info_t size = pattern_size(ret);
         printf("size of uri spec pattern: %lu tokens, %lu patterns\n",

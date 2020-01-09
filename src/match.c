@@ -440,6 +440,50 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
             }
         }
     }
+
+    token_t *next = patt->next;
+    // if this is a string proceeded by another string with no alt, and the
+    // number of times we are allowed to repeat both is fixed, and we are the
+    // only token referencing next, then we can merge the two into a single
+    // literal
+    if (next != NULL && next->alt == NULL &&
+            patt_type(patt->node) == TYPE_LITERAL &&
+            patt_type(next->node) == TYPE_LITERAL &&
+            patt->min == patt->max && next->min == next->max &&
+            patt_ref_count((pattern_t*) next) == 1) {
+        
+        int n = patt->max; // number of times to repeat patt
+        int m = next->max; // number of times to repeat next
+
+        literal *tlit = &patt->node->lit;
+        literal *nlit = &next->node->lit;
+
+        int tlen = tlit->length; // length of patt's word
+        int nlen = nlit->length; // length of next's word
+
+        literal *comb = (literal*) make_literal(n * m);
+        for (int i = 0; i < n; i++) {
+            memcpy(&comb->word[i * tlen], &tlit->word[0], tlen);
+        }
+        for (int i = 0; i < m; i++) {
+            memcpy(&comb->word[n * tlen + i * nlen], &nlit->word[0], nlen);
+        }
+
+        comb->length = n * tlen + m * nlen;
+
+        patt->node = (pattern_t*) comb;
+        patt_ref_inc((pattern_t*) comb);
+
+        _safe_free((pattern_t*) tlit);
+        _safe_free((pattern_t*) nlit);
+
+        // take next's spot, we know that next's alt is NULL, so we just need
+        // to set out next to next's next
+        patt->next = next->next;
+
+        // we can now safely free next, as we know that it's ref count was 1
+        free(next);
+    }
 }
 
 

@@ -523,14 +523,35 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 token = ret;
             }
             else {
-                token = (token_t*) make_token();
-                token->node = (pattern_t*) ret;
-                patt_ref_inc((pattern_t*) ret);
-                // connect ret back to token
-                pattern_connect(ret, token);
+                if (ret->next == NULL && ret->alt == NULL &&
+                        (ret->min == ret->max || ret->min <= 1)) {
+                    // then we can simply overwrite the repeat counters of ret
+                    // rather than constuct another token to wrap it
 
-                token->min = min;
-                token->max = max;
+                    // if ret->min == 1, ret->max >= 1, then the range of
+                    // allowed repeats would be min to ret->max * max
+                    // if ret->min == 0, then the range of allowed repeats
+                    // would be 0 to ret->max * max
+                    // if ret->min == ret->max, then the range of allowed
+                    // repeates would be ret->min * min to ret->max * max
+                    // in all 3 cases, we arrive at the same answer by doing
+                    // the following 2 multiplications, without any conditional
+                    // logic needed
+                    ret->min *= min;
+                    ret->max *= max;
+
+                    token = ret;
+                }
+                else {
+                    token = (token_t*) make_token();
+                    token->node = (pattern_t*) ret;
+                    patt_ref_inc((pattern_t*) ret);
+                    // connect ret back to token
+                    pattern_connect(ret, token);
+
+                    token->min = min;
+                    token->max = max;
+                }
             }
         }
         else if (*buf == '<') {
@@ -767,6 +788,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
 
     } while (*buf != term_on);
 
+    pattern_consolidate(ret);
     return ret;
 }
 
@@ -907,8 +929,7 @@ static void mark_visited(token_t *token) {
  * circularly reference an anonymous symbol which is what the processing bits
  * check for)
  */
-static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
-        int anonymous) {
+static int _resolve_symbols(hashmap *rules, token_t *token, int anonymous) {
 
     int ret = 0;
 
@@ -961,12 +982,32 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         }
         mark_processing(res);
 
-        // place a copy of the symbol in place of the reference    
-        token->node = (pattern_t*) pattern_deep_copy(res);
-        clear_processing_bits(&token->node->token);
+        // place a copy of the symbol in place of the reference
+        token_t *cpy = pattern_deep_copy(res);
+        /*if (token->max == 1) {
+            // either this is an optional token or a required-once token
+            if (token->min == 0 && token->alt == NULL) {
+                // if this is optional and there is no alternative, then we
+                // don't need it, we can pattern_connect and pattern_or the
+                // reference instead. We can't do this if there are
+                // alternatives since,  another alternative could optional
+                // and followed by a different token, in which case either path
+                // could be taken freely, but there is no way to emulate that
+                // behavior with removing the wrapping tokens
+                pattern_connect(cpy, token->next);
+                pattern_or(cpy, token->next);
+            }
+            else if (token->min == 1) {
+                // if this is a once-required token, we can just replace it
+                // with the resolved pattern
+                //
+            }
+        }*/
+        token->node = (pattern_t*) cpy;
+        clear_processing_bits(cpy);
         patt_ref_inc(token->node);
         // and connect the copy back to token
-        pattern_connect(&token->node->token, token);
+        pattern_connect(cpy, token);
 
         // we are now done with the unresolved node, so we can free it
         patt_ref_dec(unres);
@@ -975,19 +1016,17 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
         }
     }
     if (patt_type(token->node) == TYPE_TOKEN) {
-        ret = _resolve_symbols(rules, &token->node->token, depth + 1,
-                ANONYMOUS);
+        ret = _resolve_symbols(rules, &token->node->token, ANONYMOUS);
     }
     if (res != NULL) {
         mark_visited(res);
     }
 
     if (ret == 0 && token->alt != NULL) {
-        ret = _resolve_symbols(rules, token->alt, depth + 1,
-                ANONYMOUS);
+        ret = _resolve_symbols(rules, token->alt, ANONYMOUS);
     }
     if (ret == 0 && token->next != NULL) {
-        ret = _resolve_symbols(rules, token->next, depth + 1, ANONYMOUS);
+        ret = _resolve_symbols(rules, token->next, ANONYMOUS);
     }
 
     if (!anonymous) {
@@ -1009,7 +1048,7 @@ static int _resolve_symbols(hashmap *rules, token_t *token, int depth,
  */
 static int resolve_symbols(parse_state *state) {
 
-    int ret = _resolve_symbols(&state->rules, state->main_rule, 0,
+    int ret = _resolve_symbols(&state->rules, state->main_rule,
             NOT_ANONYMOUS);
 
     // go through and check to see if there are any unused symbols
@@ -1289,12 +1328,9 @@ static token_t* bnf_parse(parse_state *state) {
         hash_free(&state->rules);
         return NULL;
     }
-    pattern_consolidate(state->main_rule);
 
     // and now parse the remaining rules
-    while ((comp_rule = rule_parse(state)) != NULL) {
-        pattern_consolidate(comp_rule);
-    }
+    while ((comp_rule = rule_parse(state)) != NULL);
     if (errno != eof) {
         free_state(state);
         return NULL;
