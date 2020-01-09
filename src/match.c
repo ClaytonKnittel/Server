@@ -176,7 +176,7 @@ static int _pattern_match(token_t *patt, char *buf, int offset,
     if (ret == -1 && captures && patt->match_idx < n_matches) {
         // if still no success, then this path was unsuccessful, so if we were
         // capturing, reset back to -1
-        __builtin_memset(&matches[patt->match_idx], -1, 2 * sizeof(match_t));
+        __builtin_memset(&matches[patt->match_idx], -1, sizeof(match_t));
     }
 
     return ret;
