@@ -172,6 +172,18 @@ void hash_free(hashmap *map);
 int hash_insert(hashmap *map, void* k, void* v);
 
 /*
+ * does the same as hash_insert without checking to make sure the key is not
+ * already in the hashset, i.e. this method allows for duplicate keys in the
+ * hashset
+ *
+ * to get all occurrences of a key, use the hash_get_all for loop rather than
+ * hash_get
+ *
+ * returns 0 on success, this always succeeds
+ */
+int hash_insert_multi(hashmap *map, void* k, void* v);
+
+/*
  * changes the given key to instead point to v, discarding whatever it
  * used to point to
  */
@@ -190,6 +202,39 @@ int hash_delete(hashmap *map, const void* k);
  * NULL if not found
  */
 void* hash_get(hashmap *map, const void* k);
+
+
+
+struct get_all_it {
+    const hashmap *map;
+    const void* k;
+    const int k_hash;
+    struct hash_node *node;
+};
+
+
+/*
+ * used for iteration through all elements with the same key, will either
+ */
+struct hash_node* hash_get_next(const hashmap *map, const void* k,
+        const int k_hash, struct hash_node *node);
+
+/*
+ * loops through all elements of map which have the given key, storing the
+ * result of each iteration in val
+ */
+#define hash_get_all(hash_map, key, val) \
+    for (   struct get_all_it __hash_it = { \
+                .map = (hash_map), \
+                .k = (key), \
+                .k_hash = __hash_it.map->hash_fn(__hash_it.k), \
+                .node = hash_get_next(__hash_it.map, __hash_it.k, \
+                        __hash_it.k_hash, NULL) \
+            }; \
+            __hash_it.node != NULL && \
+            (((val) = __hash_it.node->v) == __hash_it.node->v); \
+            __hash_it.node = hash_get_next(__hash_it.map, __hash_it.k, \
+                __hash_it.k_hash, __hash_it.node))
 
 
 

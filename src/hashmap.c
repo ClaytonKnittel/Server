@@ -208,6 +208,28 @@ int hash_insert(hashmap *map, void* k, void* v) {
 }
 
 
+int hash_insert_multi(hashmap *map, void* k, void* v) {
+    struct hash_node *node = (struct hash_node *)
+        malloc(sizeof(struct hash_node));
+    if (node == NULL) {
+        return HASH_MEM_ERR;
+    }
+
+    node->k = k;
+    node->v = v;
+    node->hash = map->hash_fn(k);
+
+    _hash_inserter_unsafe(map, node);
+    map->size++;
+
+    if (map->size > map->load_limit) {
+        return _hash_grow(map);
+    }
+
+    return 0;
+}
+
+
 /*
  * finds the hash_node struct containing the given key, or NULL if the key
  * is not in the map
@@ -278,4 +300,21 @@ void* hash_get(hashmap *map, const void* k) {
     }
 }
 
+
+struct hash_node* hash_get_next(const hashmap *map, const void* k,
+        const int k_hash, struct hash_node *node) {
+
+    if (node == NULL) {
+        size_t idx = _get_idx(map->hash_fn(k), sizes[map->size_idx]);
+        node = map->buckets[idx].first;
+    }
+    else {
+        node = node->next;
+    }
+    while (node != NULL && (node->hash != k_hash ||
+                map->cmp_fn(node->k, k) != 0)) {
+        node = node->next;
+    }
+    return node;
+}
 

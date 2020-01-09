@@ -131,6 +131,27 @@ int main() {
     hash_free(&map);
 
 
+    // test multimap
+    hash_init(&map, &ptr_hash, *ptr_cmp);
+
+    void *f = malloc(8); // just use for "random" number
+    free(f);
+    
+    hash_insert_multi(&map, f, (void*) 0x1);
+    hash_insert_multi(&map, f, (void*) 0x2);
+    hash_insert_multi(&map, f, (void*) 0x4);
+    hash_insert_multi(&map, f, (void*) 0x8);
+    hash_insert_multi(&map, f, (void*) 0x10);
+
+    void* val;
+    int mask = 0;
+    hash_get_all(&map, f, val) {
+        mask |= (long) val;
+    }
+    assert(mask, 0x1f);
+
+    hash_free(&map);
+
     printf(P_GREEN "All hashmap tests passed" P_RESET "\n");
     return 0;
 }

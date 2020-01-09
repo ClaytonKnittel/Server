@@ -683,7 +683,6 @@ int main() {
         assert_neq((long) ret, (long) NULL);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
-        bnf_print(ret);
 
         match_t match;
 
@@ -713,7 +712,6 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
-        bnf_print(ret);
 
         assert(pattern_match(ret, "0x1", 0, NULL), 0);
         assert(pattern_match(ret, "0x3f", 0, NULL), 0);
@@ -737,7 +735,6 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
         assert(tmp_check(ret), 0);
-        bnf_print(ret);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
@@ -766,7 +763,6 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
-        bnf_print(ret);
 
         assert(pattern_match(ret, "a", 0, NULL), 0);
         assert(pattern_match(ret, "b", 0, NULL), 0);
@@ -890,7 +886,7 @@ int main() {
 
 
         char bnf2[] =
-            " rule = 1*3('a' 'c') \"acac\"\n";
+            " rule = 1*3('a' 'c') 2*2(\"ac\")\n";
 
         ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
         assert(errno, 0);
@@ -898,6 +894,7 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
+        bnf_print(ret);
 
         assert(pattern_match(ret, "acacac", 0, NULL), 0);
         assert(pattern_match(ret, "acacacac", 0, NULL), 0);
@@ -1037,8 +1034,6 @@ int main() {
         assert(tmp_check(ret), 0);
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
-
-        bnf_print(ret);
 
         size_info_t size = pattern_size(ret);
         printf("size of pattern: %lu tokens, %lu patterns\n",

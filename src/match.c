@@ -446,6 +446,7 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
     // number of times we are allowed to repeat both is fixed, and we are the
     // only token referencing next, then we can merge the two into a single
     // literal
+    // TODO add check to make sure don't do this with big words/many repeats
     if (next != NULL && next->alt == NULL &&
             patt_type(patt->node) == TYPE_LITERAL &&
             patt_type(next->node) == TYPE_LITERAL &&
@@ -461,7 +462,7 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
         int tlen = tlit->length; // length of patt's word
         int nlen = nlit->length; // length of next's word
 
-        literal *comb = (literal*) make_literal(n * m);
+        literal *comb = (literal*) make_literal(n * tlen + m * nlen);
         for (int i = 0; i < n; i++) {
             memcpy(&comb->word[i * tlen], &tlit->word[0], tlen);
         }
@@ -483,6 +484,34 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
 
         // we can now safely free next, as we know that it's ref count was 1
         free(next);
+
+        // now that we have combined them, we only need to consume this once
+        patt->min = 1;
+        patt->max = 1;
+    }
+    else if (patt_type(patt->node) == TYPE_LITERAL &&
+            patt->min == patt->max && patt->max > 1) {
+
+        // then we can make this one long literal
+        int n = patt->max;
+        literal *lit = &patt->node->lit;
+        int len = lit->length;
+
+        literal *comb = (literal*) make_literal(n * len);
+        for (int i = 0; i < n; i++) {
+            memcpy(&comb->word[i * len], &lit->word[0], len);
+        }
+
+        comb->length = n * len;
+
+        patt->node = (pattern_t*) comb;
+        patt_ref_inc((pattern_t*) comb);
+
+        _safe_free((pattern_t*) lit);
+
+        // now that we have combined them, we only need to consume this once
+        patt->min = 1;
+        patt->max = 1;
     }
 }
 
