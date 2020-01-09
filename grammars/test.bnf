@@ -2,4 +2,4 @@ main = ( rule1 | rule2 ) " " rule3
 
 rule1 = "hello"
 rule2 = "goodbye"
-rule3 = ( 'a' | 'b' | 'c' )
+rule3 = <abc>

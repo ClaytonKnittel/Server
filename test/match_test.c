@@ -749,6 +749,33 @@ int main() {
     }
 
 
+    // test line crossings
+    {
+        token_t *ret;
+
+        char bnf1[] =
+            " escapes = ('a' \n"
+            "            | 'b' | \n"
+            "              'c' )";
+
+        ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+
+        assert(pattern_match(ret, "a", 0, NULL), 0);
+        assert(pattern_match(ret, "b", 0, NULL), 0);
+        assert(pattern_match(ret, "c", 0, NULL), 0);
+        assert(pattern_match(ret, "ab", 0, NULL), MATCH_FAIL);
+        assert(pattern_match(ret, "", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
+
+        pattern_free(ret);
+    }
+
+
 
     // test badly formed rexeges
     {
@@ -779,7 +806,6 @@ int main() {
         assert(errno, undefined_symbol);
         assert((long) ret, (long) NULL);
 
-        //" main = ( \"ab\" ( \"ef\" (\"cd\" test1 ) ) ) | test2"
         char bnf5[] =
             "main = test1 | test2\n"
             "test1 = \"ab\" test3\n"
@@ -787,6 +813,55 @@ int main() {
             "test3 = \"ef\" test2";
         ret = bnf_parseb(bnf5, sizeof(bnf5) - 1);
         assert(errno, circular_definition);
+        assert((long) ret, (long) NULL);
+
+        char bnf6[] =
+            "main = 5*4('a' | 'b') 'c'";
+        ret = bnf_parseb(bnf6, sizeof(bnf6) - 1);
+        assert(errno, zero_quantifier);
+        assert((long) ret, (long) NULL);
+
+        char bnf7[] =
+            "main = 'a' 1*5 ";
+        ret = bnf_parseb(bnf7, sizeof(bnf7) - 1);
+        assert(errno, no_token_after_quantifier);
+        assert((long) ret, (long) NULL);
+
+        char bnf8[] =
+            "main = 0*0('a' | 'b') 'c'";
+        ret = bnf_parseb(bnf8, sizeof(bnf8) - 1);
+        assert(errno, zero_quantifier);
+        assert((long) ret, (long) NULL);
+
+        char bnf9[] =
+            "main = 1*4['a' | 'b'] 'c'";
+        ret = bnf_parseb(bnf9, sizeof(bnf9) - 1);
+        assert(errno, overspecified_quantifier);
+        assert((long) ret, (long) NULL);
+
+        char bnf10[] =
+            "main = 1*4('a' | 'b') 'c";
+        ret = bnf_parseb(bnf10, sizeof(bnf10) - 1);
+        assert(errno, bad_single_char_lit);
+        assert((long) ret, (long) NULL);
+
+        char bnf11[] =
+            "main = 1*4('a' | 'b') 'c '";
+        ret = bnf_parseb(bnf11, sizeof(bnf11) - 1);
+        assert(errno, bad_single_char_lit);
+        assert((long) ret, (long) NULL);
+
+        // out of range
+        char bnf12[] =
+            "main = 1*5 '\\x81'";
+        ret = bnf_parseb(bnf12, sizeof(bnf12) - 1);
+        assert(errno, bad_single_char_lit);
+        assert((long) ret, (long) NULL);
+
+        char bnf13[] =
+            "main = 1*4 () 'b'";
+        ret = bnf_parseb(bnf13, sizeof(bnf13) - 1);
+        assert(errno, unexpected_token);
         assert((long) ret, (long) NULL);
     }
 
@@ -891,6 +966,60 @@ int main() {
         assert(matches[1].so, -1);
         
         pattern_free(ret);
+
+    }
+
+    // test char classes
+    {
+        token_t *ret;
+
+        char bnf[] =
+            " rule = <abcdefg>";
+
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+
+        char str[2];
+        str[1] = '\0';
+        for (unsigned char c = 0; c < NUM_CHARS; c++) {
+            str[0] = (char) c;
+            if (c >= 'a' && c <= 'g') {
+                assert(pattern_match(ret, str, 0, NULL), 0);
+            }
+            else {
+                assert(pattern_match(ret, str, 0, NULL), MATCH_FAIL);
+            }
+        }
+        assert(pattern_match(ret, "ab", 0, NULL), MATCH_FAIL);
+        assert(tmp_check(ret), 0);
+
+        pattern_free(ret);
+
+
+        char bnf2[] =
+            " rule = <\\n\\>\\<>";
+
+        ret = bnf_parseb(bnf2, sizeof(bnf2) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+        assert(tmp_check(ret), 0);
+        assert(bnf_consistency_check(ret), 0);
+        assert(tmp_check(ret), 0);
+
+        for (unsigned char c = 0; c < NUM_CHARS; c++) {
+            str[0] = (char) c;
+            if (c == '\n' || c == '<' || c == '>') {
+                assert(pattern_match(ret, str, 0, NULL), 0);
+            }
+            else {
+                assert(pattern_match(ret, str, 0, NULL), MATCH_FAIL);
+            }
+        }
+
 
     }
 

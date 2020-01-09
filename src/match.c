@@ -193,38 +193,19 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 }
 
 
-// forward declaration
-/*void _pattern_free(pattern_t *patt);
-
-void _token_free(token_t *token) {
-    if (token->node != NULL) {
-        _pattern_free(token->node);
-    }
-    if (token->alt != NULL) {
-        _pattern_free(token->alt);
-    }
-    if (token->next != NULL) {
-        _pattern_free(token->next);
-    }
-}*/
 
 void _pattern_free(token_t *token) {
 
-    // need to record these now in case it is decreased in recursive calls, in
-    // those cases if it goes to 0, this token will be freed in the recursive
-    // call and should not be freed/accessed here
-    pattern_t *node, *alt, *next;
+    pattern_t *node = token->node,
+              *alt = (pattern_t*) token->alt,
+              *next = (pattern_t*) token->next;
 
-    node = token->node;
-    alt = (pattern_t*) token->alt;
-    next = (pattern_t*) token->next;
-
+    // set all connections to NULL so they won't be visited multiple times
+    // through this token
     token->node = NULL;
     token->alt = NULL;
     token->next = NULL;
 
-    // free connections and set them to NULL so they won't be visited
-    // multiple times through this token
     if (node != NULL) {
         if (patt_type(node) == TYPE_TOKEN) {
             _pattern_free(&node->token);

@@ -46,7 +46,23 @@
  *      
  *      Rule2 = "a" | "c" | "ca"
  *
- *  would match "a", "c", and "ca"
+ *  would match only "a", "c", and "ca"
+ *
+ *
+ *  You can match a group of characters by writing
+ *
+ *      digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+ *
+ *  or more concicely, using <>,
+ *
+ *      digit = <0123456789>
+ *
+ *  which is equivalent to the above definition. Characters in the triangle
+ *  brackets can be escaped by using a backslash, i.e.
+ *
+ *      whitespace = < \n\t>
+ *
+ *  would match a space ' ', a newline character '\n', or a tab '\t'
  *
  *
  *  By default, a line must be fully matched by a rule, meaning, for example,
@@ -142,6 +158,7 @@ enum {
     and_or_mix,
     overspecified_quantifier,
     zero_quantifier,
+    bad_cc,
     open_string,
     empty_string,
     bad_single_char_lit,

@@ -220,6 +220,121 @@ static char* get_next_unmatching(char_class *cc, char* buf) {
     return buf;
 }
 
+
+/*
+ * calculates the character value from buf, returning just the char in place
+ * unless it is escaped, for which it then calculates the true value from the
+ * following char(s)
+ *
+ * on failure, returns -1, otherwise returns the char value at the beginning of
+ * buf
+ */
+static int char_val(parse_state *state, char** buf_ptr) {
+    unsigned char *buf = (unsigned char*) *buf_ptr;
+    int val = 0;
+
+    if (*buf == '\\') {
+        // escaped literal
+        buf++;
+
+        if (*buf == '\0' || *buf == '\n') {
+            BNF_ERR("dangling \"\\\" at end of line\n");
+            errno = bad_single_char_lit;
+            return -1;
+        }
+        else if (*buf == 'x') {
+            if (*(buf + 1) == '\0' || *(buf + 2) == '\0') {
+                BNF_ERR("incomplete escape sequence \\%s\n", buf);
+                errno = bad_single_char_lit;
+                return -1;
+            }
+
+            buf++;
+
+#define IS_HEX(c) (((c) >= '0' && (c) <= '9') \
+                || ((c) >= 'a' && (c) <= 'f') \
+                || ((c) >= 'A' && (c) <= 'F'))
+
+            // escaped hex char
+
+            if (!IS_HEX(*buf) || !IS_HEX(*(buf + 1))) {
+                BNF_ERR("invalid char hexcode \"\\x%c%c\"\n",
+                        *buf, *(buf + 1));
+                errno = bad_single_char_lit;
+                return -1;
+            }
+
+#undef IS_HEX
+
+#define HEX_VAL(c) \
+            (((c) >= '0' && (c) <= '9') ? (c) - '0' : \
+             ((c) >= 'a' && (c) <= 'f') ? (c) - 'a' + 10 : \
+             (c) - 'A' + 10)
+            
+            val = (HEX_VAL(*buf) << 4) + HEX_VAL(*(buf + 1));
+
+            // place buf just beyond the read-in character
+            buf += 2;
+        }
+        else {
+
+            // escaped literal char
+            switch (*buf) {
+                case 'a':
+                    val = '\a';
+                    break;
+                case 'b':
+                    val = '\b';
+                    break;
+                case 'f':
+                    val = '\f';
+                    break;
+                case 'n':
+                    val = '\n';
+                    break;
+                case 'r':
+                    val = '\r';
+                    break;
+                case 't':
+                    val = '\t';
+                    break;
+                case 'v':
+                    val = '\v';
+                    break;
+                case '\\':
+                    val = '\\';
+                    break;
+                case '\'':
+                    val = '\'';
+                    break;
+                case '"':
+                    val = '\"';
+                    break;
+                case '?':
+                    val = '\?';
+                    break;
+                default:
+                    BNF_ERR("unknown escape sequence \"\\%c\"",
+                            *buf);
+                    errno = bad_single_char_lit;
+                    return -1;
+            }
+            // place buf just beyond the read-in character
+            buf ++;
+        }
+    }
+    else {
+        // unescaped character
+        val = *buf;
+
+        // place buf just beyond the read-in character
+        buf++;
+    }
+
+    *buf_ptr = (char*) buf;
+    return val;
+}
+
 /*
  * parse all referenced tokens and literals out of the rule, stopping only
  * when the term_on character has been reached
@@ -280,14 +395,6 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
         // since the preceeding method modified only buf in state
         buf = state->buf;
 
-        /*token = (token_t*) make_token();
-        if (token == NULL) {
-            errno = memory_error;
-            if (ret != NULL) {
-                pattern_free(ret);
-            }
-            return token;
-        }*/
         token = NULL;
 
         // when they are both 0, this signifies they are uninitialized
@@ -426,6 +533,58 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                 token->max = max;
             }
         }
+        else if (*buf == '<') {
+            // character class
+            // skip '<'
+            buf++;
+
+            char_class *cc = (char_class*) make_char_class();
+
+            while (*buf != '>') {
+                if (*buf == '\0' || *buf == '\n') {
+                    BNF_ERR("unclosed character class\n");
+                    RETURN_ERR(bad_cc);
+                }
+                int val;
+                if (*buf == '\\' && (*(buf + 1) == '<' || *(buf + 1) == '>')) {
+                    // we have to treat these specially, as \< and \> are not
+                    // normal escape sequences
+                    val = *(buf + 1);
+                    buf += 2;
+                }
+                else {
+                    val = char_val(state, &buf);
+                    // because we require < and > to be escaped, check to make
+                    // sure this did not read in a '<'
+                    if (val == '<') {
+                        BNF_ERR("must escape '<' within a character class\n");
+                        RETURN_ERR(bad_cc);
+                    }
+                }
+
+                if (val == -1) {
+                    free(cc);
+                    PROPAGATE_ERR;
+                }
+                if ((unsigned char) val >= NUM_CHARS) {
+                    BNF_ERR("character 0x%2.2x is out of bounds\n", val);
+                    RETURN_ERR(bad_cc);
+                }
+
+                cc_allow(cc, val);
+            }
+
+            // skip closing '>'
+            buf++;
+            state->buf = buf;
+
+            token = (token_t*) make_token();
+            token->node = (pattern_t*) cc;
+            patt_ref_inc((pattern_t*) cc);
+
+            token->min = min;
+            token->max = max;
+        }
         else if (*buf == '"') {
             // literal
             // skip first double quote char
@@ -471,112 +630,32 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             if (*buf == '\0') {
                 // badly-formatted single-character literal
                 BNF_ERR("dangling \"'\" at end of line\n");
-                free(token);
                 RETURN_ERR(bad_single_char_lit);
             }
-            else if (*buf == '\\') {
-                // escaped literal
-                buf++;
-                
-                if (*buf == '\0') {
-                    BNF_ERR("dangling \"\\\" at end of line\n");
-                    RETURN_ERR(bad_single_char_lit);
-                }
-                else if (*(buf + 1) == '\'') {
-
-                    // escaped literal char
-                    switch (*buf) {
-                        case 'a':
-                            val = '\a';
-                            break;
-                        case 'b':
-                            val = '\b';
-                            break;
-                        case 'f':
-                            val = '\f';
-                            break;
-                        case 'n':
-                            val = '\n';
-                            break;
-                        case 'r':
-                            val = '\r';
-                            break;
-                        case 't':
-                            val = '\t';
-                            break;
-                        case 'v':
-                            val = '\v';
-                            break;
-                        case '\\':
-                            val = '\\';
-                            break;
-                        case '\'':
-                            val = '\'';
-                            break;
-                        case '"':
-                            val = '\"';
-                            break;
-                        case '?':
-                            val = '\?';
-                            break;
-                        default:
-                            BNF_ERR("unknown escape sequence \"\\%c\"",
-                                    *buf);
-                            RETURN_ERR(bad_single_char_lit);
-                    }
-                    // place buf just beyond the last '
-                    buf += 2;
-                }
-                else if (*buf == 'x' && *(buf + 1) != '\0'
-                        && *(buf + 2) != '\0' && *(buf + 3) == '\'') {
-
-                    buf++;
-
-#define IS_HEX(c) (((c) >= '0' && (c) <= '9') \
-        || ((c) >= 'a' && (c) <= 'f') \
-        || ((c) >= 'A' && (c) <= 'F'))
-
-                    // escaped hex char
-
-                    if (!IS_HEX(*buf) || !IS_HEX(*(buf + 1))) {
-                        BNF_ERR("invalid char hexcode \"\\x%c%c\"\n",
-                                *buf, *(buf + 1));
-                        RETURN_ERR(bad_single_char_lit);
-                    }
-
-#undef IS_HEX
-
-#define HEX_VAL(c) \
-                    (((c) >= '0' && (c) <= '9') ? (c) - '0' : \
-                     ((c) >= 'a' && (c) <= 'f') ? (c) - 'a' + 10 : \
-                     (c) - 'A' + 10)
-                    
-                    val = (HEX_VAL(*buf) << 4) + HEX_VAL(*(buf + 1));
-
-                    // place buf just beyond the last '
-                    buf += 3;
-                }
-                else {
-                    BNF_ERR("badly formatted single-character literal\n");
-                    RETURN_ERR(bad_single_char_lit);
-                }
-            }
-            else if (*(buf + 1) == '\'') {
-                // unescaped single-char literal
-                val = *buf;
-
-                if (val == '\'') {
-                    BNF_ERR("cannot have empty literal ''\n");
-                    RETURN_ERR(bad_single_char_lit);
-                }
-
-                // place buf just beyond the last '
-                buf += 2;
-            }
-            else {
-                BNF_ERR("badly formatted single-character literal\n");
+            else if (*buf == '\'') {
+                BNF_ERR("cannot have empty literal '' (%s) - 4\n", buf - 4);
                 RETURN_ERR(bad_single_char_lit);
             }
+
+            val = char_val(state, &buf);
+
+            if (val == -1) {
+                PROPAGATE_ERR;
+            }
+
+            if (*buf != '\'') {
+                BNF_ERR("unclosed single-char '%c'\n", val);
+                RETURN_ERR(bad_single_char_lit);
+            }
+
+            // go past the closing '
+            buf++;
+
+            if ((unsigned char) val >= NUM_CHARS) {
+                BNF_ERR("character 0x%2.2x is out of bounds\n", val);
+                RETURN_ERR(bad_single_char_lit);
+            }
+
             state->buf = buf;
 
             pattern_t *lit = make_literal(1);
