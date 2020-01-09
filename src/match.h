@@ -69,7 +69,10 @@
  *  Tokens which contain other tokens (i.e. a token whose node is also a token)
  *      require that that child token lead back to the parent on all matching
  *      paths (following any of next, alt, and node fields of tokens), and that
- *      no paths lead to termination (i.e. next=NULL)
+ *      no paths lead to termination (i.e. next=NULL). Also, no token in the
+ *      subgraph within the token may be a parent of the token (for example,
+ *      node could not point to the token whose next is token, even if that
+ *      would not cause any cycles or violate the prior rule)
  *
  *  If a token is an alt of some other token, then it cannot be referenced by
  *      any other token (as a next, alt, or node), i.e. its reference count
@@ -321,6 +324,21 @@ void pattern_consolidate(token_t *patt);
  */
 int pattern_connect(token_t *patt, token_t *to);
 
+/*
+ * effectively undoes the operation pattern_connect(patt, from) and then
+ * does the operation pattern_connect(patt, to). I.e. if you wanted to change
+ * the token that was a parent of some subgraph of the FSM, you would want
+ * to use this method
+ */
+int pattern_reconnect(token_t *patt, token_t *from, token_t *to);
+
+
+/*
+ * disconnects all next-field references from the subgraph starting at patt
+ * to the token from, i.e. effectively undoing the opteration
+ * pattern_connect(patt, from)
+ */
+int pattern_disconnect(token_t *patt, token_t *from);
 
 /*
  * connects patt to pattern "opt" conditionally, so either patt may be chosen
@@ -356,6 +374,12 @@ static __inline void patt_ref_dec(pattern_t *patt) {
 // gets the reference count of this pattern
 static __inline unsigned patt_ref_count(pattern_t *patt) {
     return ((unsigned) patt->type) >> REF_COUNT_OFF;
+}
+
+// sets the reference count of this pattern
+static __inline void patt_ref_set(pattern_t *patt, unsigned count) {
+    patt->type = (((unsigned) patt->type) & REF_COUNT_MASK) |
+        (count << REF_COUNT_OFF);
 }
 
 // gets the type of the pattern wrapped by this token
@@ -402,7 +426,7 @@ static __inline void cc_disallow(char_class *cc, char c) {
  * adds all chars in other to cc
  */
 static __inline void cc_allow_from(char_class *cc, char_class *other) {
-    for (int i = 0; i < (sizeof(char_class) / sizeof(__bitv_t)); i++) {
+    for (int i = 0; i < (NUM_CHARS / (8 * sizeof(__bitv_t))); i++) {
         cc->bitv[i] |= other->bitv[i];
     }
 }

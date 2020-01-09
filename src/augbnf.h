@@ -133,6 +133,9 @@
  *
  */
 
+#ifndef _AUGBNF_H
+#define _AUGBNF_H
+
 #include "match.h"
 
 
@@ -186,3 +189,4 @@ token_t* bnf_parsef(const char *bnf_path);
 token_t* bnf_parseb(const char *buffer, size_t buf_size);
 
 
+#endif /* _AUGBNF_H */

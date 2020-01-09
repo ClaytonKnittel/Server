@@ -105,6 +105,7 @@ static int _pattern_match(token_t *patt, char *buf, int offset,
     literal *lit;
 
     // use the tmp field of the token to count number of uses
+    // FIXME make this thread safe!
 #define rep_count tmp
 
     int count = patt->rep_count;
@@ -300,7 +301,6 @@ static void _safe_free(pattern_t *patt) {
 }
 
 
-
 void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
 
     if (patt == terminator) {
@@ -308,10 +308,61 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
         // from, so we can stop
         return;
     }
+
+
     if (hash_insert(seen, patt, NULL) != 0) {
         // we have already consolidated this token, so we can stop
         return;
     }
+
+
+    // try elevation before recursing any
+    if (patt_type(patt->node) == TYPE_TOKEN && !token_captures(patt)) {
+        if (patt->min == 1 && patt->max == 1) {
+            // if this is a once-required group, then just elevate the token
+            // it contains
+
+            // first disconnect the circular references back to patt->node from
+            // that subgraph, as we will be reconnecting it to patt's next and
+            // alt. We know all references to patt->node have to be in the
+            // subgraph contained by patt->node, as pattern's nodes are all
+            // private
+            pattern_disconnect((token_t*) patt->node, patt);
+            if (patt_type(((token_t*) patt->node)->node) == TYPE_TOKEN) {
+                pattern_reconnect((token_t*) ((token_t*) patt->node)->node, (token_t*) patt->node, patt);
+            }
+
+            // save patt's connections
+            token_t *next = patt->next;
+            token_t *alt = patt->alt;
+            pattern_t *node = patt->node;
+
+            int ref_count = patt_ref_count((pattern_t*) patt);
+
+            // now copy over all of patt->node's data
+            *patt = patt->node->token;
+            patt_ref_set((pattern_t*) patt, ref_count);
+
+            // and finally hook up the subgraph to patt's next and alt
+            if (next != NULL) {
+                // because we are removing patt
+                patt_ref_dec((pattern_t*) next);
+                pattern_connect(patt, next);
+            }
+            if (alt != NULL) {
+                // because we are removing patt
+                patt_ref_dec((pattern_t*) alt);
+                pattern_or(patt, alt);
+            }
+
+
+            // and lastly free the old patt->node
+            free(node);
+        }
+
+    }
+
+
 
     _pattern_consolidate(patt->next, terminator, seen);
 
@@ -322,6 +373,8 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
     if (patt_type(patt->node) == TYPE_TOKEN) {
         _pattern_consolidate(&patt->node->token, patt, seen);
     }
+
+
 
     // first, if this token points to a single-character literal or a character
     // class and is proceeded by a single-character literal or a character
@@ -513,10 +566,16 @@ void _pattern_consolidate(token_t *patt, token_t *terminator, hashmap *seen) {
         patt->min = 1;
         patt->max = 1;
     }
+
+
+
+
+
 }
 
 
 void pattern_consolidate(token_t *patt) {
+    // acts as a hashset of tokens that have already been consolidated
     hashmap seen;
     hash_init(&seen, &ptr_hash, &ptr_cmp);
 
@@ -574,6 +633,82 @@ int pattern_connect(token_t *patt, token_t *to) {
     unmark_seen(patt);
     return ret;
 }
+
+
+int pattern_reconnect(token_t *patt, token_t *from, token_t *to) {
+    int ret = -1;
+
+    if (is_seen(patt)) {
+        return ret;
+    }
+
+    mark_seen(patt);
+
+    if (patt->next == from) {
+        // we can link patt to "to"
+        patt->next = to;
+        patt_ref_inc((pattern_t*) to);
+        patt_ref_dec((pattern_t*) from);
+        ret = 0;
+    }
+    else if (patt->next == to) {
+        // don't recurse into to
+    }
+    else if (pattern_reconnect(patt->next, from, to) != -1) {
+        ret = 0;
+    }
+    if (patt->alt == from) {
+        patt->alt = to;
+        patt_ref_inc((pattern_t*) to);
+        patt_ref_dec((pattern_t*) from);
+        ret = 0;
+    }
+    else if (patt->alt != NULL) {
+        if (pattern_reconnect(patt->alt, from, to) != -1) {
+            ret = 0;
+        }
+    }
+
+    unmark_seen(patt);
+    return ret;
+}
+
+int pattern_disconnect(token_t *patt, token_t *from) {
+    int ret = -1;
+
+    if (is_seen(patt)) {
+        return ret;
+    }
+
+    mark_seen(patt);
+
+    if (patt->next == from) {
+        // we can unlink patt
+        patt->next = NULL;
+        patt_ref_dec((pattern_t*) from);
+        ret = 0;
+    }
+    else if (patt->next == NULL) {
+        // don't recurse into what has been unset
+    }
+    else if (pattern_disconnect(patt->next, from) != -1) {
+        ret = 0;
+    }
+    if (patt->alt == from) {
+        patt->alt = NULL;
+        patt_ref_dec((pattern_t*) from);
+        ret = 0;
+    }
+    else if (patt->alt != NULL) {
+        if (pattern_disconnect(patt->alt, from) != -1) {
+            ret = 0;
+        }
+    }
+
+    unmark_seen(patt);
+    return ret;
+}
+
 
 int pattern_or(token_t *patt, token_t *opt) {
     for (; patt->alt != NULL; patt = patt->alt);

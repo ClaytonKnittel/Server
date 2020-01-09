@@ -3,6 +3,8 @@
  * hold the contents of each bin
  *
  */
+#ifndef _HASHMAP_H
+#define _HASHMAP_H
 
 // returned by a method when an element can't be found
 #define HASH_ELEMENT_NOT_FOUND 1
@@ -242,3 +244,4 @@ struct hash_node* hash_get_next(const hashmap *map, const void* k,
 // makes str_hash
 HASH_MAKE_TYPED(char*, void*, str)
 
+#endif /* _HASHMAP_H */
