@@ -5,6 +5,7 @@
 #elif __APPLE__
 #include <sys/param.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
 #endif
 
 int dec_width(int pow2) {
@@ -45,4 +46,32 @@ double timespec_diff(struct timespec *t1, struct timespec *t0) {
     return ((1000000000LU * t1->tv_sec + t1->tv_nsec) -
             (1000000000LU * t0->tv_sec + t0->tv_nsec)) / 1000000000.;
 }
+
+
+#ifdef __APPLE__
+// from https://opensource.apple.com/source/sudo/sudo-46/src/memrchr.c
+
+/*
+ * Reverse memchr()
+ * Find the last occurrence of 'c' in the buffer 's' of size 'n'.
+ */
+void *
+memrchr(s, c, n)
+    const void *s;
+    int c;
+    size_t n;
+{
+    const unsigned char *cp;
+
+    if (n != 0) {
+	cp = (unsigned char *)s + n;
+	do {
+	    if (*(--cp) == (unsigned char)c)
+		return((void *)cp);
+	} while (--n != 0);
+    }
+    return((void *)0);
+}
+
+#endif
 

@@ -117,4 +117,6 @@ int main(int argc, char *argv[]) {
     }
 
     free(socks);
+
+    return 0;
 }

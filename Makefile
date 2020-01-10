@@ -4,14 +4,19 @@ ifeq ($(UNAME),Linux)
 	FEAT_TEST_MACROS=-D_DEFAULT_SOURCE -D_POSIX_SOURCE -D_GNU_SOURCE
 else ifeq ($(UNAME),Darwin)
 	LIBS=-pthread
-	FEAT_TEST_MACROS=
+	FEAT_TEST_MACROS=-D_GNU_SOURCE
 else
 	$(error Not compatible for $(UNAME) systems)
 endif
 
-DIR="$(shell pwd)/"
+ifeq ($(USER),lilching)
+	# then we are on the AWS instance
+	DIR="/home/lilching/public"
+else
+	DIR="$(shell pwd)/serveup"
+endif
 
-CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG -D__USER__=\"$(USER)\" -D__DIR__=\"$(DIR)\" $(FEAT_TEST_MACROS)
+CFLAGS=-c -g -Wall -O0 -std=c99 -DDEBUG -D__USER__=\"$(USER)\" -DPUBLIC_FILE_SRC=\"$(DIR)\" $(FEAT_TEST_MACROS)
 
 # name of c file containing main method
 MAIN=main

@@ -45,4 +45,18 @@ int get_n_cpus();
 double timespec_diff(struct timespec *t1, struct timespec *t0);
 
 
+#ifdef __APPLE__
+// need to define memrchr for mac systems
+
+// from https://opensource.apple.com/source/sudo/sudo-46/src/memrchr.c
+
+/*
+ * Reverse memchr()
+ * Find the last occurrence of 'c' in the buffer 's' of size 'n'.
+ */
+void *memrchr(const void *s, int c, size_t n);
+
+#endif
+
+
 #endif /* _UTIL_H */

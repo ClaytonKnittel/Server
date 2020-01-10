@@ -123,6 +123,9 @@ struct http {
     // if the entire request has not yet been received or an error occured,
     // its value is undefined and should not be read
     int fd;
+
+    // the size of the requested file, in bytes
+    size_t file_size;
 };
 
 int http_init();

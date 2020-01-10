@@ -33,10 +33,9 @@
 #define MAX_URI_SIZE 256
 
 
-//#if __USER__ dd
-#define PUBLIC_FILE_SRC "/home/lilching/public"
-// directory from which files are served
-//#define PUBLIC_FILE_SRC __DIR__ "serveup"
+// to be used whenever no resource is requested, just the default page of the
+// website
+#define DEFAULT_PAGE "/index.html"
 
 
 static const char * const msgs[] = {
@@ -376,6 +375,33 @@ static __inline int parse_method(struct http *p, char *method) {
 }
 
 
+
+/*
+ * verifies that the file trying to be accessed is allowed to be accessed
+ */
+static int fd_verify(struct http *p) {
+    struct stat stat;
+
+    if (fstat(p->fd, &stat) != 0) {
+        fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
+        close(p->fd);
+        p->fd = -1;
+        return -1;
+    }
+
+    if (!S_ISREG(stat.st_mode)) {
+        // not allowed to open anything besides regular files
+        close(p->fd);
+        p->fd = -1;
+        return -1;
+    }
+
+    p->file_size = stat.st_size;
+
+    return 0;
+}
+
+
 static __inline int parse_uri(struct http *p, char *buf) {
 
     struct http_header_match match;
@@ -384,6 +410,8 @@ static __inline int parse_uri(struct http *p, char *buf) {
             sizeof(struct http_header_match) / sizeof(match_t),
             (match_t*) &match);
 
+    vprintf("URI: %s\n", buf);
+
     if (ret == MATCH_FAIL) {
         // badly formatted uri
         p->fd = -1;
@@ -391,6 +419,12 @@ static __inline int parse_uri(struct http *p, char *buf) {
     }
     if (match.abs_uri.so == -1) {
         // no uri requested
+        p->fd = -1;
+        return -1;
+    }
+    if (strstr(buf, "../") != NULL) {
+        // not allowed to use ../ in URI's, otherwise could request data
+        // outside of the directory being served
         p->fd = -1;
         return -1;
     }
@@ -405,7 +439,7 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
 
     // first use URI to set MIME type in http struct
-    char *ext = (char*) memchr(uri, '.', uri_len);
+    char *ext = (char*) memrchr(uri, '.', uri_len);
     if (ext == NULL) {
         // no extension, set ext to the end of uri, i.e. ""
         ext = uri + uri_len;
@@ -418,14 +452,21 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
 
     char fullpath[sizeof(PUBLIC_FILE_SRC) + MAX_URI_SIZE];
-    sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
+    if (strcmp(uri, "/") == 0) {
+        sprintf(fullpath, PUBLIC_FILE_SRC DEFAULT_PAGE);
+    }
+    else {
+        sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
+    }
 
     // restore
     buf[match.abs_uri.eo] = tmp;
 
-    p->fd = open(fullpath, O_RDONLY);
+    // open the file in read-only mode, do not follow symlinks
+    p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW);
 
     if (p->fd == -1) {
+        vprintf("could not open %s\n", fullpath);
         // no such file
         return -1;
     }
@@ -470,7 +511,7 @@ int http_parse(struct http *p, dmsg_list *req) {
             }
 
 #define TEST_BAD_FORMAT \
-            if (buf == NULL) { \
+            if (tmp == NULL) { \
                 set_state(p, RESPONSE); \
                 set_status(p, bad_request); \
                 return HTTP_ERR; \
@@ -499,6 +540,14 @@ int http_parse(struct http *p, dmsg_list *req) {
             }
             if (parse_uri(p, req_path) != 0) {
                 // the URI was not properly formatted
+                set_state(p, RESPONSE);
+                set_status(p, not_found);
+                return HTTP_ERR;
+            }
+            if (fd_verify(p) != 0) {
+                // don't have permission to open this file, however we want
+                // to mask it as not_found, otherwise internals of our
+                // filesystem could be reconstructed with many GET requests
                 set_state(p, RESPONSE);
                 set_status(p, not_found);
                 return HTTP_ERR;
@@ -534,18 +583,6 @@ int http_respond(struct http *p, int fd) {
         // should not call respond if not in respond state
         return HTTP_ERR;
     }
-    //http_print(p);
-
-    size_t size = 0;
-    if (p->fd != -1) {
-        struct stat stat;
-        if (fstat(p->fd, &stat) == 0) {
-            size = stat.st_size;
-        }
-        else {
-            fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
-        }
-    }
 
     char buf[4096];
     int len = snprintf(buf, sizeof(buf),
@@ -553,14 +590,16 @@ int http_respond(struct http *p, int fd) {
             "Content-Length: %lu\n"
             "Content-Type: %s\n"
             "\n",
-            get_status_str((unsigned) get_status(p)), size, get_mime_type(p));
+            get_status_str((unsigned) get_status(p)), p->file_size,
+            get_mime_type(p));
+
     write(fd, buf, len);
 
     if (p->fd != -1) {
 #ifdef __linux__
         sendfile(fd, p->fd, NULL, size);
 #elif __APPLE__
-        off_t n_bytes = size;
+        off_t n_bytes = p->file_size;
         sendfile(p->fd, fd, 0, &n_bytes, NULL, 0);
 #endif
     }
