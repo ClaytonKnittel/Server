@@ -605,7 +605,7 @@ int http_respond(struct http *p, int fd) {
 
     ret = write(fd, buf, len);
 
-    if (ret == EPIPE) {
+    if (ret == -1 && errno == EPIPE) {
         // then the client connection was closed on the read end
         return HTTP_CLOSE;
     }
