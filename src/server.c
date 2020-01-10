@@ -313,7 +313,7 @@ static int disconnect(struct server *server, struct client *client, int thread) 
     write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);*/
 
 #ifdef DEBUG
-    char buf[5];
+    char buf[5] = "\0\0\0\0";
     dmsg_cpy(&client->log, buf, sizeof(buf));
     buf[4] = '\0';
 #endif
