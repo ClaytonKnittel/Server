@@ -14,6 +14,10 @@
 #define HTTP_NOT_DONE 1
 // error has occured
 #define HTTP_ERR -1
+// to be returned when the connection should be closed, either becase the
+// response was complete and this is not keep-alive, or the read-end was closed
+// by the client
+#define HTTP_CLOSE 2
 
 
 /* states of the http request FSM */

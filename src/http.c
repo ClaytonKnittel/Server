@@ -415,17 +415,20 @@ static __inline int parse_uri(struct http *p, char *buf) {
     if (ret == MATCH_FAIL) {
         // badly formatted uri
         p->fd = -1;
+        printf("match fail\n");
         return -1;
     }
     if (match.abs_uri.so == -1) {
         // no uri requested
         p->fd = -1;
+        printf("no abs uri\n");
         return -1;
     }
     if (strstr(buf, "../") != NULL) {
         // not allowed to use ../ in URI's, otherwise could request data
         // outside of the directory being served
         p->fd = -1;
+        printf("../ found\n");
         return -1;
     }
 
@@ -567,6 +570,9 @@ int http_parse(struct http *p, dmsg_list *req) {
             state = HEADERS;
             break;
         case HEADERS:
+            set_state(p, RESPONSE);
+            set_status(p, ok);
+            return HTTP_DONE;
             break;
         case BODY:
             break;
@@ -575,16 +581,14 @@ int http_parse(struct http *p, dmsg_list *req) {
             return HTTP_ERR;
         }
     }
-    //set_state(p, state);
-    set_state(p, RESPONSE);
-    set_status(p, ok);
 
-    // FIXME
-    return HTTP_DONE;
+    return HTTP_NOT_DONE;
 }
 
 
 int http_respond(struct http *p, int fd) {
+    int ret;
+
     if (get_state(p) != RESPONSE) {
         // should not call respond if not in respond state
         return HTTP_ERR;
@@ -599,7 +603,12 @@ int http_respond(struct http *p, int fd) {
             get_status_str((unsigned) get_status(p)), p->file_size,
             get_mime_type(p));
 
-    write(fd, buf, len);
+    ret = write(fd, buf, len);
+
+    if (ret == EPIPE) {
+        // then the client connection was closed on the read end
+        return HTTP_CLOSE;
+    }
 
     if (p->fd != -1) {
 #ifdef __linux__
@@ -610,7 +619,8 @@ int http_respond(struct http *p, int fd) {
 #endif
     }
 
-    return 0;
+    // we have sent all info and have not yet implemented keep-alive
+    return HTTP_CLOSE;
 }
 
 

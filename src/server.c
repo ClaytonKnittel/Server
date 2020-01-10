@@ -94,6 +94,7 @@ int init_server(struct server *server, int port) {
 
 int init_server3(struct server *server, int port, int backlog) {
     int ret = 0;
+    sigset_t sigpipe;
 
     memset(&server->in, 0, sizeof(server->in));
 
@@ -133,6 +134,14 @@ int init_server3(struct server *server, int port, int backlog) {
         = server_as_client_node(server);
 
     server->client_list_lock = UNLOCKED;
+
+    if (ret == 0) {
+        // block SIGPIPE signals so writes to a disconnected client don't terminate
+        // the program
+        sigemptyset(&sigpipe);
+        sigaddset(&sigpipe, SIGPIPE);
+        ret = pthread_sigmask(SIG_BLOCK, &sigpipe, NULL) == 0 ? 0 : -1;
+    }
 
     if (connect_server(server) == -1) {
         ret = -1;

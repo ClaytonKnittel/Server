@@ -18,8 +18,10 @@ static void usage(const char* program_name) {
 
 int main(int argc, char *argv[]) {
     struct sockaddr_in server;
-    int sock;
-    int nsocks = 1, port = 80;
+    int port = 80;
+
+#define NSOCKS 3
+    int socks[NSOCKS];
 
     char *endptr;
     int c, i;
@@ -48,29 +50,44 @@ int main(int argc, char *argv[]) {
         printf("Invalid ip address: %s\n", argv[1]);
         return 3;
     }
-    
+
     printf("Connecting to %s:%d\n", inet_ntoa(server.sin_addr), port);
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        printf("Could not connect: %s\n", strerror(errno));
-    }
+    for (int i = 0; i < NSOCKS; i++) {
+        socks[i] = socket(AF_INET, SOCK_STREAM, 0);
+        if (socks[i] == -1) {
+            printf("Could not connect: %s\n", strerror(errno));
+            while (--i >= 0) {
+                close(socks[i]);
+            }
+        }
 
-    if (connect(sock, (struct sockaddr*) &server,
-                sizeof(struct sockaddr_in)) == -1) {
-        printf("Unable to connect socket to port %d, ""reason %s\n",
-                port, strerror(errno));
-        close(sock);
-        return -1;
+        if (connect(socks[i], (struct sockaddr*) &server,
+                    sizeof(struct sockaddr_in)) == -1) {
+            printf("Unable to connect socket to port %d, ""reason %s\n",
+                    port, strerror(errno));
+            while (i >= 0) {
+                close(socks[i]);
+                i--;
+            }
+            return -1;
+        }
     }
     char msg[] = "GET / HTTP/1.1\n\n";
 
-    write(sock, msg, sizeof(msg) - 1);
-    write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    for (size_t j = 0; j < sizeof(msg) - 1; j++) {
+        for (size_t i = 0; i < NSOCKS; i++) {
+            write(socks[i], &msg[j], 1);
+            if (i == NSOCKS - 1) {
+                write(STDOUT_FILENO, &msg[j], 1);
+            }
+        }
+        usleep(300000);
+    }
 
     usleep(10000);
     char buf[4096];
-    ssize_t read_in = read(sock, buf, sizeof(buf));
+    ssize_t read_in = read(socks[0], buf, sizeof(buf));
 
     if (read_in == -1) {
         printf("Unable to read server's response, reason: %s\n",
@@ -80,7 +97,9 @@ int main(int argc, char *argv[]) {
         write(STDOUT_FILENO, buf, read_in);
     }
 
-    close(sock);
+    for (int i = 0; i < NSOCKS; i++) {
+        close(socks[i]);
+    }
 
     return 0;
 }

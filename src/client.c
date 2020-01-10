@@ -44,11 +44,17 @@ int accept_client(struct client *client, int sockfd, int flags) {
  */
 static int parse_request(struct client *client) {
     int ret = http_parse(&client->http, &client->log);
-    if (ret != HTTP_NOT_DONE) {
-        // either an error occured or we finished parsing the request,
-        // either way we need to respond now
-        http_respond(&client->http, client->connfd);
-        return CLIENT_CLOSE;
+    if (ret == HTTP_DONE || ret == HTTP_ERR) {
+        // if either an error occured or we finished parsing the request,
+        // we need to respond now
+        ret = http_respond(&client->http, client->connfd);
+        if (ret == HTTP_CLOSE) {
+            return CLIENT_CLOSE;
+        }
+        else {
+            // keep-alive
+            return 0;
+        }
     }
     return 0;
 }
