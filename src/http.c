@@ -597,7 +597,7 @@ int http_respond(struct http *p, int fd) {
 
     if (p->fd != -1) {
 #ifdef __linux__
-        sendfile(fd, p->fd, NULL, size);
+        sendfile(fd, p->fd, NULL, p->file_size);
 #elif __APPLE__
         off_t n_bytes = p->file_size;
         sendfile(p->fd, fd, 0, &n_bytes, NULL, 0);
