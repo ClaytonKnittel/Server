@@ -35,7 +35,7 @@
 
 // to be used whenever no resource is requested, just the default page of the
 // website
-#define DEFAULT_PAGE "/index.html"
+static char default_page[] = "/index.html";
 
 
 static const char * const msgs[] = {
@@ -429,17 +429,26 @@ static __inline int parse_uri(struct http *p, char *buf) {
         return -1;
     }
 
-    char* uri = &buf[match.abs_uri.so];
+    const char* uri = &buf[match.abs_uri.so];
     size_t uri_len = match.abs_uri.eo - match.abs_uri.so;
 
     // null-terminate uri, but save what was previously there so it can be
     // restored
     char tmp = buf[match.abs_uri.eo];
-    buf[match.abs_uri.eo] = '\0';
+
+    int use_default_page = (strcmp(uri, "/") == 0);
+
+    if (use_default_page) {
+        uri = default_page;
+        uri_len = sizeof(default_page) - 1;
+    }
+    else {
+        buf[match.abs_uri.eo] = '\0';
+    }
 
 
     // first use URI to set MIME type in http struct
-    char *ext = (char*) memrchr(uri, '.', uri_len);
+    const char *ext = (const char*) memrchr(uri, '.', uri_len);
     if (ext == NULL) {
         // no extension, set ext to the end of uri, i.e. ""
         ext = uri + uri_len;
@@ -452,15 +461,12 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
 
     char fullpath[sizeof(PUBLIC_FILE_SRC) + MAX_URI_SIZE];
-    if (strcmp(uri, "/") == 0) {
-        sprintf(fullpath, PUBLIC_FILE_SRC DEFAULT_PAGE);
-    }
-    else {
-        sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
-    }
+    sprintf(fullpath, PUBLIC_FILE_SRC "%s", uri);
 
-    // restore
-    buf[match.abs_uri.eo] = tmp;
+    if (!use_default_page) {
+        // restore
+        buf[match.abs_uri.eo] = tmp;
+    }
 
     // open the file in read-only mode, do not follow symlinks
     p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW);
