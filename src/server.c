@@ -317,9 +317,9 @@ static int disconnect(struct server *server, struct client *client, int thread) 
     int ret;
     vprintf("Thread %d disconnected %d\n", thread, client->connfd);
 
-    /*write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+    write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
     dmsg_write(&client->log, STDOUT_FILENO);
-    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);*/
+    write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
 
 #ifdef DEBUG
     char buf[5] = "\0\0\0\0";
