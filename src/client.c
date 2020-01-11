@@ -8,9 +8,6 @@
 #include "vprint.h"
 
 
-// returned by a method to indicate that the client should be disconnected
-#define CLIENT_CLOSE 1
-
 
 int accept_client(struct client *client, int sockfd, int flags) {
     socklen_t len = sizeof(struct sockaddr);
@@ -47,14 +44,7 @@ static int parse_request(struct client *client) {
     if (ret == HTTP_DONE || ret == HTTP_ERR) {
         // if either an error occured or we finished parsing the request,
         // we need to respond now
-        ret = http_respond(&client->http, client->connfd);
-        if (ret == HTTP_CLOSE) {
-            return CLIENT_CLOSE;
-        }
-        else {
-            // keep-alive
-            return 0;
-        }
+        return http_respond(&client->http, client->connfd);
     }
     return 0;
 }
@@ -62,7 +52,7 @@ static int parse_request(struct client *client) {
 ssize_t receive_bytes(struct client *client) {
     ssize_t n_read = dmsg_read(&client->log, client->connfd);
 
-    if (parse_request(client) == CLIENT_CLOSE) {
+    if (parse_request(client) == HTTP_CLOSE) {
         client->keep_alive = 0;
     }
 
@@ -72,7 +62,7 @@ ssize_t receive_bytes(struct client *client) {
 ssize_t receive_bytes_n(struct client *client, size_t max) {
     ssize_t n_read = dmsg_read_n(&client->log, client->connfd, max);
 
-    if (parse_request(client) == CLIENT_CLOSE) {
+    if (parse_request(client) == HTTP_CLOSE) {
         client->keep_alive = 0;
     }
 

@@ -6,18 +6,22 @@
 #include "dmsg.h"
 
 
+// error has occured
+#define HTTP_ERR -1
+
 // to be returned by http_parse when parsing has complete and the repsonse
 // is ready to be sent
 #define HTTP_DONE 0
 // to be returned by http_parse when parsing has not complete, meaning the
 // request likely has not been fully received
 #define HTTP_NOT_DONE 1
-// error has occured
-#define HTTP_ERR -1
 // to be returned when the connection should be closed, either becase the
 // response was complete and this is not keep-alive, or the read-end was closed
 // by the client
 #define HTTP_CLOSE 2
+// to be returned when the connection should not be closed, likely because
+// the client requested the connection to be kept alive
+#define HTTP_KEEP_ALIVE 3
 
 
 /* states of the http request FSM */
@@ -91,6 +95,9 @@ enum status {
 #define HTTP_1_0 0x0
 #define HTTP_1_1 0x1
 
+// keep-alive
+#define KEEP_ALIVE 0x2
+
 // method
 #define OPTIONS 0x00
 #define GET     0x10
@@ -112,13 +119,14 @@ struct http {
     /*
      * bitpacking all states in status variable:
      *  V - HTTP version
+     *  A - keep-alive (1 = yes, 0 = no)
      *  F - state (of FSM)
      *  M - method
      *  S - status
      *  T - MIME type of requested file
      *
      * | msb                         lsb |
-     * ________ _____TTT TTSSSSSS MMMMFF_V
+     * ________ _____TTT TTSSSSSS MMMMFFAV
      *
      */
     int status;

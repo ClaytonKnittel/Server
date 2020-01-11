@@ -179,15 +179,23 @@ void close_server(struct server *server) {
     // join with all threads
     exit_mt_routine(&server->mt);
 
+    printf("conn list: [");
     client = server->client_list.first;
     while (client != server_as_client_node(server)) {
         next = client->next;
+        printf("%d, ", client->connfd);
+
+        write(STDOUT_FILENO, P_CYAN, sizeof(P_CYAN) - 1);
+        dmsg_write(&client->log, STDOUT_FILENO);
+        write(STDOUT_FILENO, P_RESET, sizeof(P_RESET) - 1);
+
         if (close_client(client) == 0) {
             // only free client if close succeeded
             free(client);
         }
         client = next;
     }
+    printf("]\n");
 
     CHECK(close(server->sockfd));
     CHECK(close(server->qfd));
@@ -303,6 +311,8 @@ static int accept_connection(struct server *server) {
         return -1;
     }
 #endif
+
+    printf("accepted on fd %d\n", client->connfd);
 
     acq_list_lock(server);
     // if all succeeded, then add the client to the list of all clients

@@ -26,6 +26,13 @@
  */
 
 
+// found "\r\n\r\n" sequence in request, meaning the end of options has been
+// reached
+#define HTTP_END_OF_OPTIONS 3
+// option was unable to be parsed, likely because it was not formatted properly
+#define HTTP_MALFORMED_OPTION 4
+
+
 // size of buffer to hold each line from request
 // (max method size (7)) + SP + URI + SP + (max version size (8)) + LF
 #define MAX_LINE (8 + MAX_URI_SIZE + 10)
@@ -261,16 +268,15 @@ static __inline char get_version(struct http *p) {
 }
 
 /*
- * sets http request method type, legal values are GET, POST, etc.
+ * sets keep-alive bit in http struct to let the program know not to
+ * immediately terminate the connection with the client after responding
  */
-static __inline void set_method(struct http *p, char method) {
-    char *b = (char*) &p->status;
-    *b = method | (0x0f & *b);
+static __inline void set_keep_alive(struct http *p) {
+    p->status |= KEEP_ALIVE;
 }
 
-static __inline char get_method(struct http *p) {
-    char *b = (char*) &p->status;
-    return 0xf0 & *b;
+static __inline int keep_alive(struct http *p) {
+    return (p->status & KEEP_ALIVE) != 0;
 }
 
 /*
@@ -285,6 +291,19 @@ static __inline void set_state(struct http *p, char state) {
 static __inline char get_state(struct http *p) {
     char *b = (char*) &p->status;
     return (0x0c & *b) >> 2;
+}
+
+/*
+ * sets http request method type, legal values are GET, POST, etc.
+ */
+static __inline void set_method(struct http *p, char method) {
+    char *b = (char*) &p->status;
+    *b = method | (0x0f & *b);
+}
+
+static __inline char get_method(struct http *p) {
+    char *b = (char*) &p->status;
+    return 0xf0 & *b;
 }
 
 /*
@@ -502,14 +521,68 @@ static __inline int parse_version(struct http *p, char *buf) {
 }
 
 
+/*
+ * parse HTTP option, which is expected to be of the form
+ *
+ *      option_name: option_value
+ *
+ * and the options which are not ignored are as follows:
+ */
+static __inline int parse_option(struct http *p, char *buf, ssize_t buf_len) {
+
+    if (strcmp(buf, "\r") == 0) {
+        // empty line indicates end of header options
+        set_state(p, RESPONSE);
+        set_status(p, ok);
+        return HTTP_END_OF_OPTIONS;
+    }
+    if (buf_len == 1) {
+        // empty line without carriage return is invalid
+        return HTTP_MALFORMED_OPTION;
+    }
+
+    if (buf[buf_len - 2] != '\r') {
+        // each option line must end with "\r\n", and the '\n' is set to the
+        // null-terminator by dmsg_getline, so we expect a carriage return at
+        // the end of the buffer
+        return HTTP_MALFORMED_OPTION;
+    }
+    // set carriage return at EOL to null-terminator
+    buf[buf_len - 2] = '\0';
+
+    char *optval = strchr(buf, ':');
+    if (optval == NULL) {
+        // option missing ':' after option name
+        return HTTP_MALFORMED_OPTION;
+    }
+    if (*(optval + 1) != ' ') {
+        // must be a space immediately proceeding the ':'
+        return HTTP_MALFORMED_OPTION;
+    }
+    // null-terminate the option name
+    *optval = '\0';
+
+    // now set optval to lie at the beginning of the option value
+    optval += 2;
+
+    if (strcmp(buf, "Connection") == 0) {
+        if (strcmp(optval, "keep-alive") == 0) {
+            set_keep_alive(p);
+        }
+    }
+    return 0;
+}
+
+
 int http_parse(struct http *p, dmsg_list *req) {
     char *req_path = NULL;
     char *method, *version;
     char *tmp, buf[MAX_LINE];
+    ssize_t len;
 
     char state = get_state(p);
 
-    while (dmsg_getline(req, buf, sizeof(buf)) > 0) {
+    while ((len = dmsg_getline(req, buf, sizeof(buf))) > 0) {
         switch (state) {
         case REQUEST:
             if (errno == DMSG_PARTIAL_READ) {
@@ -570,9 +643,10 @@ int http_parse(struct http *p, dmsg_list *req) {
             state = HEADERS;
             break;
         case HEADERS:
-            set_state(p, RESPONSE);
-            set_status(p, ok);
-            return HTTP_DONE;
+            if (parse_option(p, buf, len) == HTTP_END_OF_OPTIONS) {
+                set_state(p, RESPONSE);
+                return HTTP_DONE;
+            }
             break;
         case BODY:
             break;
@@ -619,8 +693,13 @@ int http_respond(struct http *p, int fd) {
 #endif
     }
 
-    // we have sent all info and have not yet implemented keep-alive
-    return HTTP_CLOSE;
+    if (keep_alive(p)) {
+        http_clear(p);
+        return HTTP_KEEP_ALIVE;
+    }
+    else {
+        return HTTP_CLOSE;
+    }
 }
 
 
