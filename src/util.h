@@ -44,6 +44,12 @@ int get_n_cpus();
 // calculates the number of seconds between t1 and t0 (t1 - t0)
 double timespec_diff(struct timespec *t1, struct timespec *t0);
 
+// true if timespec t1 occurs after t2
+static __inline int timespec_after(struct timespec *t1, struct timespec *t2) {
+    return (t1->tv_sec == t2->tv_sec) ? t1->tv_nsec > t2->tv_nsec :
+        t1->tv_sec > t2->tv_sec;
+}
+
 
 #ifdef __APPLE__
 // need to define memrchr for mac systems

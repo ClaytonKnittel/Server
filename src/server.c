@@ -319,7 +319,7 @@ static int connect_server(struct server *server) {
         epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->term_read, &term_ev);
 
     struct epoll_event timer_ev = {
-        .events = EPOLLIN,
+        .events = EPOLLIN | EPOLLET,
         .data.ptr = ((char*) &server->timerfd)
             - offsetof(epoll_data_ptr_t, connfd)
     };
@@ -327,8 +327,8 @@ static int connect_server(struct server *server) {
         epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->timerfd, &timer_ev);
 
     if (ret == -1) {
-        fprintf("Unable to add server sockfd, term pipe read or timerfd to "
-                QUEUE_T ", reason: %s\n", strerror(errno));
+        fprintf(stderr, "Unable to add server sockfd, term pipe read or "
+                "timerfd to " QUEUE_T ", reason: %s\n", strerror(errno));
         return ret;
     }
 #endif
@@ -493,6 +493,37 @@ static int read_from(struct server *server, struct client *client, int thread) {
 }
 
 
+static void close_expired_connections(struct server *server, int thread) {
+    struct client *client;
+    struct timespec current_time;
+
+    clock_gettime(TIMER_CLOCK, &current_time);
+
+    acq_list_lock(server);
+    for (client = server->client_list.last;
+            client != server_as_client_node(server);
+            // must keep taking from end of list because disconnect removes
+            // the client from the list
+            client = server->client_list.last) {
+        rel_list_lock(server);
+
+        if (timespec_after(&current_time, &client->expires)) {
+            // if this client expired before the current time, we need to close
+            // the connection with them
+            disconnect(server, client, thread);
+            acq_list_lock(server);
+        }
+        else {
+            // because the clients are in the list in nonincreasing expiration
+            // time, if one timer expires after the current time, so do all
+            // others before it
+            break;
+        }
+    }
+    rel_list_lock(server);
+}
+
+
 
 
 #define SIZE 1024
@@ -548,7 +579,12 @@ static void* _run(void *server_arg) {
                  event.filter == EVFILT_TIMER
 #endif
                  ) {
-            printf("timeout!\n");
+#ifdef __linux__
+            // gotta read it so it can be rearmed
+            long ntimeouts;
+            read(fd, &ntimeouts, sizeof(long));
+#endif
+            close_expired_connections(server, thread);
         }
         else {
 #ifdef __APPLE__
