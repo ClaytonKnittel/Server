@@ -37,6 +37,17 @@ struct server {
     // call (like kqueue or epoll) from continuing to operate
     volatile int running;
 
+#ifdef __linux__
+    // file descriptor for the periodic timer used for closing timed-out
+    // connections (for linux only)
+    int timerfd;
+#elif __APPLE__
+    // for mac, register a timer with identifier as given below, whose value
+    // is chosen to be a file descriptor we know can not possibly be added
+    // to the kqueue in any scenario (as we will never listen to stdout)
+#define TIMER_IDENT STDOUT_FILENO
+#endif
+
     // this pipe is written to when the server begins shutdown. Each thread
     // which pulls this off the queue will simply place it back in the queue
     // and terminate itself gracefully

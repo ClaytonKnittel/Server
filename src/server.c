@@ -18,6 +18,7 @@
 #elif __linux__
 #define QUEUE_T "epoll"
 #include <sys/epoll.h>
+#include <sys/timerfd.h>
 #endif
 
 #include "client.h"
@@ -40,6 +41,19 @@ typedef struct client epoll_data_ptr_t;
 // server loop
 #define MAX_READ_SIZE 4096
 
+
+// the system clock to use for connection expiration
+#define TIMER_CLOCK CLOCK_MONOTONIC
+
+// the default number of seconds to wait without having received any data from
+// a connection before killing the connection
+#define DEFAULT_CONNECTION_TIMEOUT 5
+
+// the number of seconds to wait between successive interrupts by the timer file
+// descriptor, which is responsible for closing connections that have timed out
+#define TIMEOUT_CLEANUP_FREQUENCY 5
+
+
 #define LOCKED 0
 #define UNLOCKED 1
 
@@ -61,11 +75,12 @@ static __inline void rel_list_lock(struct server *server) {
 }
 
 
+// adds client to beginning of list
 static void list_insert(struct server *server, struct client *client) {
-    client->next = server->client_list.last->next;
-    client->prev = server->client_list.last;
-    server->client_list.last->next = client;
-    server->client_list.last = client;
+    client->next = server->client_list.first;
+    client->prev = server->client_list.first->prev;
+    server->client_list.first->prev = client;
+    server->client_list.first = client;
 }
 
 static void list_remove(struct client *client) {
@@ -120,6 +135,19 @@ int init_server3(struct server *server, int port, int backlog) {
 
     server->running = 1;
 
+#ifdef __linux__
+    // create a timer file descriptor which is to be placed into the queue.
+    // It will be responsible for waking up a thread to check the client list
+    // and close connections that have timed out periodically
+    server->timerfd = timerfd_create(TIMER_CLOCK, TFD_NONBLOCK);
+
+    if (server->timerfd == -1) {
+        fprintf(stderr, "Unable to initialize timerfd, reason: %s\n",
+                strerror(errno));
+        ret = -1;
+    }
+#endif
+
     if (pipe(server->term_pipe) == -1) {
         fprintf(stderr, "Unable to initialize pipe, reason: %s\n",
                 strerror(errno));
@@ -135,16 +163,16 @@ int init_server3(struct server *server, int port, int backlog) {
 
     server->client_list_lock = UNLOCKED;
 
+    if (connect_server(server) == -1) {
+        ret = -1;
+    }
+
     if (ret == 0) {
-        // block SIGPIPE signals so writes to a disconnected client don't terminate
-        // the program
+        // block SIGPIPE signals so writes to a disconnected client don't
+        // terminate the program
         sigemptyset(&sigpipe);
         sigaddset(&sigpipe, SIGPIPE);
         ret = pthread_sigmask(SIG_BLOCK, &sigpipe, NULL) == 0 ? 0 : -1;
-    }
-
-    if (connect_server(server) == -1) {
-        ret = -1;
     }
     
     if (ret != 0) {
@@ -167,7 +195,7 @@ void close_server(struct server *server) {
     vprintf("Closing server on fd %d\n", server->sockfd);
 
     if (server->client_list_lock == LOCKED) {
-        
+        // TODO
     }
 
     server->running = 0;
@@ -199,6 +227,9 @@ void close_server(struct server *server) {
 
     CHECK(close(server->sockfd));
     CHECK(close(server->qfd));
+#ifdef __linux__
+    CHECK(close(server->timerfd));
+#endif
     CHECK(close(server->term_read));
     CHECK(close(server->term_write));
 
@@ -227,19 +258,43 @@ static int connect_server(struct server *server) {
         return -1;
     }
 
+#ifdef __linux__
+    // start up the periodic timer
+    struct itimerspec timer = {
+        .it_interval = {
+            .tv_sec = DEFAULT_CONNECTION_TIMEOUT,
+            .tv_nsec = 0
+        },
+        .it_value = {
+            .tv_sec = DEFAULT_CONNECTION_TIMEOUT,
+            .tv_nsec = 0
+        }
+    };
+    if (timerfd_settime(server->timerfd, 0, &timer, NULL) == -1) {
+        fprintf(stderr, "Unable to initialize timer, reason: %s\n",
+                strerror(errno));
+        return -1;
+    }
+#endif
+
 #ifdef __APPLE__
-    struct kevent listen_ev[2];
+    struct kevent listen_ev[3];
     EV_SET(&listen_ev[0], server->sockfd, EVFILT_READ,
             EV_ADD | EV_DISPATCH, 0, 0, NULL);
     EV_SET(&listen_ev[1], server->term_read, EVFILT_READ,
             EV_ADD, 0, 0, NULL);
-    if (kevent(server->qfd, listen_ev, 2, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "Unable to add server sockfd and term pipe read to "
-                QUEUE_T ", reason: %s\n", strerror(errno));
+    EV_SET(&listen_ev[2], TIMER_IDENT, EVFILT_TIMER,
+            EV_ADD | EV_ENABLE, NOTE_SECONDS, DEFAULT_CONNECTION_TIMEOUT,
+            NULL);
+    if (kevent(server->qfd, listen_ev, 3, NULL, 0, NULL) == -1) {
+        fprintf(stderr, "Unable to add server sockfd, term pipe read and "
+                "timerfd to " QUEUE_T ", reason: %s\n", strerror(errno));
         close_server(server);
         return -1;
     }
 #elif __linux__
+    int ret;
+
     struct epoll_event listen_ev = {
 #ifdef EPOLLEXCLUSIVE
         .events = EPOLLIN | EPOLLEXCLUSIVE,
@@ -247,20 +302,49 @@ static int connect_server(struct server *server) {
         .events = EPOLLIN | EPOLLET | EPOLLONESHOT,
 #endif
         // safe as long as the rest of data is never accessed, which it
-        // shouldn't be for the sockfd
+        // shouldn't be for the sockfd. Do this so each epolldata object
+        // can be treated as a client object for the purposes of finding out
+        // which file descriptor the event is associated with
         .data.ptr = ((char*) &server->sockfd)
             - offsetof(epoll_data_ptr_t, connfd)
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->sockfd, &listen_ev);
+    ret = epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->sockfd, &listen_ev);
+
     struct epoll_event term_ev = {
         .events = EPOLLIN,
         .data.ptr = ((char*) &server->term_read)
             - offsetof(epoll_data_ptr_t, connfd)
     };
-    epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->term_read, &term_ev);
+    ret = ret == -1 ? ret :
+        epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->term_read, &term_ev);
+
+    struct epoll_event timer_ev = {
+        .events = EPOLLIN,
+        .data.ptr = ((char*) &server->timerfd)
+            - offsetof(epoll_data_ptr_t, connfd)
+    };
+    ret = ret == -1 ? ret :
+        epoll_ctl(server->qfd, EPOLL_CTL_ADD, server->timerfd, &timer_ev);
+
+    if (ret == -1) {
+        fprintf("Unable to add server sockfd, term pipe read or timerfd to "
+                QUEUE_T ", reason: %s\n", strerror(errno));
+        return ret;
+    }
 #endif
 
     return 0;
+}
+
+
+
+/*
+ * sets the expiration timer on this client, to be called after a complete
+ * request has been parsed or on initialization of a connection
+ */
+static void set_expiration_timer(struct client *client) {
+    clock_gettime(TIMER_CLOCK, &client->expires);
+    client->expires.tv_sec += DEFAULT_CONNECTION_TIMEOUT;
 }
 
 
@@ -306,7 +390,8 @@ static int accept_connection(struct server *server) {
         .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
         .data.ptr = client
     };
-    if (CHECK(epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event)) == -1) {
+    if (CHECK(epoll_ctl(server->qfd, EPOLL_CTL_ADD, client->connfd, &event))
+            == -1) {
         free(client);
         return -1;
     }
@@ -317,6 +402,9 @@ static int accept_connection(struct server *server) {
     acq_list_lock(server);
     // if all succeeded, then add the client to the list of all clients
     list_insert(server, client);
+    // set their expiration timer while the list lock is acquired so the
+    // timeout values in the client list will be nondecreasing
+    set_expiration_timer(client);
     rel_list_lock(server);
 
     return 0;
@@ -378,6 +466,17 @@ static int read_from(struct server *server, struct client *client, int thread) {
         return disconnect(server, client, thread);
     }
     else {
+        // otherwise, some data was read, and we can update the expiration time
+        // of this connection and move it to the back of the client list
+        acq_list_lock(server);
+        list_remove(client);
+        list_insert(server, client);
+
+        // renew the timeout of the connection
+        set_expiration_timer(client);
+        rel_list_lock(server);
+
+        // and we also need to rearm the fd for the connection in the queue
 #ifdef __APPLE__
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_READ,
@@ -441,6 +540,15 @@ static void* _run(void *server_arg) {
             else {
                 vprintf("Thread %d denied connection\n", thread);
             }
+        }
+        else if (
+#ifdef __linux__
+                 fd == server->timerfd
+#elif __APPLE__
+                 event.filter == EVFILT_TIMER
+#endif
+                 ) {
+            printf("timeout!\n");
         }
         else {
 #ifdef __APPLE__

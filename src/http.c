@@ -629,15 +629,15 @@ int http_parse(struct http *p, dmsg_list *req) {
             if (fd_verify(p) != 0) {
                 // don't have permission to open this file, however we want
                 // to mask it as not_found, otherwise internals of our
-                // filesystem could be reconstructed with many GET requests
+                // filesystem could be probed with many GET requests
                 set_state(p, RESPONSE);
                 set_status(p, not_found);
                 return HTTP_ERR;
             }
             if (parse_version(p, version) != 0) {
-                // requets line not formatted properly
+                // not HTTP/1.0 or HTTP/1.1
                 set_state(p, RESPONSE);
-                set_status(p, bad_request);
+                set_status(p, http_version_not_supported);
                 return HTTP_ERR;
             }
             state = HEADERS;
@@ -670,10 +670,10 @@ int http_respond(struct http *p, int fd) {
 
     char buf[4096];
     int len = snprintf(buf, sizeof(buf),
-            "HTTP/1.1 %s\n"
-            "Content-Length: %lu\n"
-            "Content-Type: %s\n"
-            "\n",
+            "HTTP/1.1 %s\r\n"
+            "Content-Length: %lu\r\n"
+            "Content-Type: %s\r\n"
+            "\r\n",
             get_status_str((unsigned) get_status(p)), p->file_size,
             get_mime_type(p));
 

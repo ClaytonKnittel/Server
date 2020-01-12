@@ -63,9 +63,6 @@ void close_handler(int signum);
 
 int init(struct server *server, int argc, char *argv[]) {
     int c, port, backlog, ret;
-#ifdef DEBUG
-    int notify = 0;
-#endif
     char* endptr;
 
     port = DEFAULT_PORT;
@@ -82,12 +79,6 @@ int init(struct server *server, int argc, char *argv[]) {
         case 'b':
             backlog = NUM_OPT;
             break;
-#ifdef DEBUG
-        case 'n':
-            // notify parent process when server has fully initialized
-            notify = 1;
-            break;
-#endif
         case 'p':
             port = NUM_OPT;
             break;
@@ -125,12 +116,6 @@ int init(struct server *server, int argc, char *argv[]) {
         printf("Failed to initialize server\n");
         return ret;
     }
-#ifdef DEBUG
-    if (notify) {
-        // notify the parent process that initialization is complete
-        kill(getppid(), SIGUSR1);
-    }
-#endif
 
     signal(SIGINT, close_handler);
     signal(SIGUSR2, close_handler);

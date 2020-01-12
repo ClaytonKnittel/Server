@@ -26,10 +26,6 @@
 volatile int ready;
 volatile int srvpid;
 
-void server_initialized(int sig) {
-    ready = 1;
-}
-
 void server_close(int sig) {
     // does not avoid race condition, but that's ok
     srvpid = -1;
@@ -77,13 +73,12 @@ int main(int argc, char *argv[]) {
         // server on this machine, setting the notify flag so that the
         // server will send us a signal after it has been initialized
         // (note: debug mode must be on for this to work)
-        char *server_args[] = {"./srv", "-n", "-q", NULL};
+        char *server_args[] = {"./srv", "-q", NULL};
         char *env_args[1] = {NULL};
 
         server.sin_addr.s_addr = get_ip_addr();
 
         ready = 0;
-        signal(SIGUSR1, &server_initialized);
         signal(SIGINT, &sigint);
         signal(SIGCHLD, &server_close);
         if ((srvpid = fork()) == 0) {
@@ -91,13 +86,13 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
-        // wait for the server to notify us that it has been initialized
-        while (!ready && (srvpid != -1));
         if (srvpid == -1) {
             // unable to initialize server
             wait(NULL);
             return -1;
         }
+        // wait 10ms for server to start up
+        usleep(10000);
     }
     else {
         // otherwise, parse the server's ip address out of the argument
@@ -138,6 +133,8 @@ int main(int argc, char *argv[]) {
     for (i = 0; i < NUM_CONNECTIONS; i++) {
         close(cfds[i]);
     }
+    // wait another 10ms to close all connections
+    usleep(10000);
 
     if (srvpid != -1) {
         // we need to terminate the server

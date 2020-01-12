@@ -22,6 +22,10 @@ struct client {
     // the client should be disconnected
     int keep_alive;
 
+    // the time after which this client connection is no longer guaranteed
+    // to be kept alive
+    struct timespec expires;
+
     // sockaddr struct associated with server
     struct sockaddr sa;
 
