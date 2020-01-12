@@ -5,6 +5,13 @@
 
 #include "dmsg.h"
 
+#ifdef __APPLE__
+
+// on Darwin, off_t is by default 64-bits
+typedef off_t off64_t;
+
+#endif
+
 
 // error has occured
 #define HTTP_ERR -1

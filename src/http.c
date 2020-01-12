@@ -399,9 +399,13 @@ static __inline int parse_method(struct http *p, char *method) {
  * verifies that the file trying to be accessed is allowed to be accessed
  */
 static int fd_verify(struct http *p) {
+#ifdef __linux__
     struct stat64 stat;
-
     if (fstat64(p->fd, &stat) != 0) {
+#elif __APPLE__
+    struct stat stat;
+    if (fstat(p->fd, &stat) != 0) {
+#endif
         fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
         close(p->fd);
         p->fd = -1;
@@ -491,7 +495,11 @@ static __inline int parse_uri(struct http *p, char *buf) {
     }
 
     // open the file in read-only mode, do not follow symlinks
-    p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW | O_LARGEFILE);
+    p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW
+#ifdef __linux__
+                                                 | O_LARGEFILE
+#endif
+            );
 
     if (p->fd == -1) {
         vprintf("could not open %s\n", fullpath);
@@ -671,7 +679,7 @@ int http_respond(struct http *p, int fd) {
     char buf[4096];
     int len = snprintf(buf, sizeof(buf),
             "HTTP/1.1 %s\r\n"
-            "Content-Length: %lu\r\n"
+            "Content-Length: %llu\r\n"
             "Content-Type: %s\r\n"
             "\r\n",
             get_status_str((unsigned) get_status(p)), p->file_size,
