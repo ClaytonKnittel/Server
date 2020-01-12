@@ -399,9 +399,9 @@ static __inline int parse_method(struct http *p, char *method) {
  * verifies that the file trying to be accessed is allowed to be accessed
  */
 static int fd_verify(struct http *p) {
-    struct stat stat;
+    struct stat64 stat;
 
-    if (fstat(p->fd, &stat) != 0) {
+    if (fstat64(p->fd, &stat) != 0) {
         fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
         close(p->fd);
         p->fd = -1;
@@ -491,7 +491,7 @@ static __inline int parse_uri(struct http *p, char *buf) {
     }
 
     // open the file in read-only mode, do not follow symlinks
-    p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW);
+    p->fd = open(fullpath, O_RDONLY | O_NOFOLLOW | O_LARGEFILE);
 
     if (p->fd == -1) {
         vprintf("could not open %s\n", fullpath);
@@ -686,9 +686,18 @@ int http_respond(struct http *p, int fd) {
 
     if (p->fd != -1) {
 #ifdef __linux__
-        sendfile(fd, p->fd, NULL, p->file_size);
+        off64_t rem = p->file_size;
+        ssize_t read;
+        off64_t offset = 0;
+        while ((read = sendfile64(fd, p->fd, &offset, rem)) < rem) {
+            if (read < 0) {
+                break;
+            }
+            rem -= read;
+        }
+        printf("read %ld, len %lu, rem %lu, err %s\n", read, p->file_size, rem, strerror(errno));
 #elif __APPLE__
-        off_t n_bytes = p->file_size;
+        off64_t n_bytes = p->file_size;
         sendfile(p->fd, fd, 0, &n_bytes, NULL, 0);
 #endif
     }

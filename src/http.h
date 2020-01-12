@@ -137,7 +137,7 @@ struct http {
     int fd;
 
     // the size of the requested file, in bytes
-    size_t file_size;
+    off64_t file_size;
 };
 
 int http_init();

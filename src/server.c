@@ -51,7 +51,7 @@ typedef struct client epoll_data_ptr_t;
 
 // the number of seconds to wait between successive interrupts by the timer file
 // descriptor, which is responsible for closing connections that have timed out
-#define TIMEOUT_CLEANUP_FREQUENCY 5
+#define TIMEOUT_CLEANUP_FREQUENCY 50
 
 
 #define LOCKED 0
