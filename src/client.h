@@ -7,6 +7,15 @@
 #include "dmsg.h"
 #include "http.h"
 
+
+#define READ_COMPLETE 1
+#define READ_INCOMPLETE 2
+
+#define WRITE_INCOMPLETE 3
+#define CLIENT_CLOSE_CONNECTION 4
+#define CLIENT_KEEP_ALIVE 5
+
+
 struct client {
     // construct for doubly-linked list of clients
     struct {
@@ -17,10 +26,6 @@ struct client {
 
     // file descriptor returned by accept syscall
     int connfd;
-
-    // set to 1 while the client is alive, can be set to 0 to indicate that
-    // the client should be disconnected
-    int keep_alive;
 
     // the time after which this client connection is no longer guaranteed
     // to be kept alive
@@ -49,17 +54,39 @@ int accept_client(struct client *client, int sockfd, int flags);
  * attempts to read data from the connection fd associated with the given
  * client into the client's dmsg_list
  *
- * returns the number of bytes read, or -1 on error
+ * returns one of the following status codes
+ *  READ_INCOMPLETE - there is still data to be read from the socket, or
+ *      we are expecting to receive more data, as the message received was
+ *      not complete according to the protocol being used
+ *  READ_COMPLETE - the read has complete and we can now wait for a write
+ *      event on the socket
  */
-ssize_t receive_bytes(struct client *client);
+int receive_bytes(struct client *client);
 
 /*
  * same as receive_data, except it only attempts to read up to max
  * bytes, stopping either when that limit is reached or EOF is reached
  *
- * returns the number of bytes read, or -1 on error
+ * returns one of the following status codes
+ *  READ_INCOMPLETE - there is still data to be read from the socket, or
+ *      we are expecting to receive more data, as the message received was
+ *      not complete according to the protocol being used
+ *  READ_COMPLETE - the read has complete and we can now wait for a write
+ *      event on the socket
  */
-ssize_t receive_bytes_n(struct client *client, size_t max);
+int receive_bytes_n(struct client *client, size_t max);
+
+/*
+ * attemts to send as much data as possible across the socket connection
+ * without blocking
+ *
+ * returns one of the following status codes
+ *  WRITE_INCOMPLETE - there is still data to be written to the socket
+ *  CLOSE_CONNECTION - the write has complete and we can now close the socket
+ *  KEEP_ALIVE - the write has complete and we can now wait for a read
+ *      event on the socket again
+ */
+int send_bytes(struct client *client);
 
 /*
  * closes connection fd associated with this client and frees all memory

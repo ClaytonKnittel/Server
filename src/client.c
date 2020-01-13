@@ -27,8 +27,6 @@ int accept_client(struct client *client, int sockfd, int flags) {
     vprintf("Connected to client of type %hx, len %d\n",
             client->sa.sa_family, len);
 
-    client->keep_alive = 1;
-
     http_clear(&client->http);
     dmsg_init(&client->log);
     return 0;
@@ -36,37 +34,33 @@ int accept_client(struct client *client, int sockfd, int flags) {
 
 /*
  * attempts to parse what has been read of the client's request. If the
- * request was fully read and responded to appropriately, then CLIENT_CLOSE
- * is returned, otherwise 0 is returned
+ * request was fully read, then READ_COMPLETE is returned. Otherwise,
+ * READ_INCOMPLETE or READ_ERR is returned
  */
 static int parse_request(struct client *client) {
     int ret = http_parse(&client->http, &client->log);
-    if (ret == HTTP_DONE || ret == HTTP_ERR) {
-        // if either an error occured or we finished parsing the request,
-        // we need to respond now
-        return http_respond(&client->http, client->connfd);
-    }
-    return 0;
+
+    return (ret == HTTP_DONE || ret == HTTP_ERR) ? READ_COMPLETE :
+        READ_INCOMPLETE;
 }
 
-ssize_t receive_bytes(struct client *client) {
-    ssize_t n_read = dmsg_read(&client->log, client->connfd);
+int receive_bytes(struct client *client) {
+    /*ssize_t n_read =*/ dmsg_read(&client->log, client->connfd);
 
-    if (parse_request(client) == HTTP_CLOSE) {
-        client->keep_alive = 0;
-    }
-
-    return n_read;
+    return parse_request(client);
 }
 
-ssize_t receive_bytes_n(struct client *client, size_t max) {
-    ssize_t n_read = dmsg_read_n(&client->log, client->connfd, max);
+int receive_bytes_n(struct client *client, size_t max) {
+    /*ssize_t n_read =*/ dmsg_read_n(&client->log, client->connfd, max);
 
-    if (parse_request(client) == HTTP_CLOSE) {
-        client->keep_alive = 0;
-    }
+    return parse_request(client);
+}
 
-    return n_read;
+int send_bytes(struct client *client) {
+    int ret = http_respond(&client->http, client->connfd);
+
+    return (ret == HTTP_ERR || ret == HTTP_CLOSE) ? CLIENT_CLOSE_CONNECTION :
+        (ret == HTTP_KEEP_ALIVE) ? CLIENT_KEEP_ALIVE : WRITE_INCOMPLETE;
 }
 
 int close_client(struct client *client) {

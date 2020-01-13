@@ -100,6 +100,35 @@ static void list_remove(struct client *client) {
             (client_var) = (client_var)->next)
 
 
+/*
+ * sets the expiration timer on this client, to be called after a complete
+ * request has been parsed or on initialization of a connection
+ */
+static void set_expiration_timer(struct client *client) {
+    clock_gettime(TIMER_CLOCK, &client->expires);
+    client->expires.tv_sec += DEFAULT_CONNECTION_TIMEOUT;
+}
+
+
+/*
+ * removes the client from the client list and reinserts them at the back, and
+ * updates their expiration time
+ */
+static void renew_client_timeout(struct server *server, struct client *client) {
+    // we either need to respond to the request or wait to receive more data
+    // from it, so we update the expiration time of this connection and move it
+    // to the back of the client list
+    acq_list_lock(server);
+    list_remove(client);
+    list_insert(server, client);
+
+    // renew the timeout of the connection
+    set_expiration_timer(client);
+    rel_list_lock(server);
+}
+
+
+
 
 static int connect_server(struct server *server);
 
@@ -338,16 +367,6 @@ static int connect_server(struct server *server) {
 
 
 
-/*
- * sets the expiration timer on this client, to be called after a complete
- * request has been parsed or on initialization of a connection
- */
-static void set_expiration_timer(struct client *client) {
-    clock_gettime(TIMER_CLOCK, &client->expires);
-    client->expires.tv_sec += DEFAULT_CONNECTION_TIMEOUT;
-}
-
-
 static int accept_connection(struct server *server) {
     struct client *client;
     int ret;
@@ -457,39 +476,88 @@ static int disconnect(struct server *server, struct client *client, int thread) 
 
 static int read_from(struct server *server, struct client *client, int thread) {
     int ret = receive_bytes_n(client, MAX_READ_SIZE);
-    vprintf("Thread %d read %d bytes from %d\n", thread, ret, client->connfd);
+    vprintf("Thread %d read from %d\n", thread, client->connfd);
 
-    if (ret == 0 || !client->keep_alive) {
-        // if no data was read from the socket, then it has closed, so perform
-        // memory cleanup and remove from event queue
-        // or if the client was set to no longer keep alive, kill the connection
-        return disconnect(server, client, thread);
+    if (ret == READ_COMPLETE) {
+        // need to arm the fd for writes on the connection in the queue
+#ifdef __APPLE__
+        struct kevent event;
+        EV_SET(&event, client->connfd, EVFILT_WRITE,
+               EV_ADD | EV_ENABLE | EV_DISPATCH, 0, 0, client);
+        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+#elif __linux__
+        struct epoll_event read_ev = {
+            .events = EPOLLOUT | EPOLLRDHUP | EPOLLONESHOT,
+            .data.ptr = client
+        };
+        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+                    &read_ev));
+#endif
     }
-    else {
-        // otherwise, some data was read, and we can update the expiration time
-        // of this connection and move it to the back of the client list
-        acq_list_lock(server);
-        list_remove(client);
-        list_insert(server, client);
-
-        // renew the timeout of the connection
-        set_expiration_timer(client);
-        rel_list_lock(server);
-
-        // and we also need to rearm the fd for the connection in the queue
+    else /* ret == READ_INCOMPLETE */ {
+        // need to rearm the fd for reads on the connection in the queue
 #ifdef __APPLE__
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_READ,
-                EV_ENABLE | EV_DISPATCH, 0, 0, client);
+               EV_ENABLE | EV_DISPATCH, 0, 0, client);
         return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
         struct epoll_event read_ev = {
             .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
             .data.ptr = client
         };
-        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd, &read_ev));
+        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+                    &read_ev));
 #endif
     }
+
+    renew_client_timeout(server, client);
+
+}
+
+
+static int write_to(struct server *server, struct client *client, int thread) {
+    int ret = send_bytes(client);
+    vprintf("Thread %d wrote to %d\n", thread, client->connfd);
+
+    if (ret == WRITE_INCOMPLETE) {
+        // need to rearm the fd for writes on the connection in the queue
+#ifdef __APPLE__
+        struct kevent event;
+        EV_SET(&event, client->connfd, EVFILT_WRITE,
+               EV_ENABLE | EV_DISPATCH, 0, 0, client);
+        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+#elif __linux__
+        struct epoll_event read_ev = {
+            .events = EPOLLOUT | EPOLLRDHUP | EPOLLONESHOT,
+            .data.ptr = client
+        };
+        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+                    &read_ev));
+#endif
+    }
+    else if (ret == CLIENT_KEEP_ALIVE) {
+#ifdef __APPLE__
+        struct kevent event;
+        EV_SET(&event, client->connfd, EVFILT_READ,
+               EV_ADD | EV_ENABLE | EV_DISPATCH, 0, 0, client);
+        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+#elif __linux__
+        struct epoll_event read_ev = {
+            .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
+            .data.ptr = client
+        };
+        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+                    &read_ev));
+#endif
+    }
+    else /* ret == CLIENT_CLOSE_CONNECTION */ {
+        disconnect(server, client, thread);
+        return 0;
+    }
+
+    renew_client_timeout(server, client);
+    return 0;
 }
 
 
@@ -573,10 +641,10 @@ static void* _run(void *server_arg) {
             }
         }
         else if (
-#ifdef __linux__
-                 fd == server->timerfd
-#elif __APPLE__
+#ifdef __APPLE__
                  event.filter == EVFILT_TIMER
+#elif __linux__
+                 fd == server->timerfd
 #endif
                  ) {
 #ifdef __linux__
@@ -592,7 +660,20 @@ static void* _run(void *server_arg) {
 #elif __linux__
             client = (struct client *) event.data.ptr;
 #endif
-            read_from(server, client, thread);
+
+            if (
+#ifdef __APPLE__
+                    event.filter == EVFILT_READ
+#elif __linux__
+                    event.events & EPOLLIN
+#endif
+                    ) {
+                read_from(server, client, thread);
+            }
+            else /* event.filter == EVFILT_WRITE or
+                    event.events & EPOLLOUT */ {
+                write_to(server, client, thread);
+            }
         }
     }
 }
