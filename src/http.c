@@ -679,7 +679,11 @@ int http_respond(struct http *p, int fd) {
     char buf[4096];
     int len = snprintf(buf, sizeof(buf),
             "HTTP/1.1 %s\r\n"
+#ifdef __APPLE__
             "Content-Length: %llu\r\n"
+#elif __linux__
+            "Content-Length: %lu\r\n"
+#endif
             "Content-Type: %s\r\n"
             "\r\n",
             get_status_str((unsigned) get_status(p)), p->file_size,
