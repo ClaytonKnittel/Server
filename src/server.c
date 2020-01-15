@@ -51,7 +51,7 @@ typedef struct client epoll_data_ptr_t;
 
 // the number of seconds to wait between successive interrupts by the timer file
 // descriptor, which is responsible for closing connections that have timed out
-#define TIMEOUT_CLEANUP_FREQUENCY 50
+#define TIMEOUT_CLEANUP_FREQUENCY 5000
 
 
 #define LOCKED 0
@@ -313,7 +313,7 @@ static int connect_server(struct server *server) {
     EV_SET(&listen_ev[1], server->term_read, EVFILT_READ,
             EV_ADD, 0, 0, NULL);
     EV_SET(&listen_ev[2], TIMER_IDENT, EVFILT_TIMER,
-            EV_ADD | EV_ENABLE, NOTE_SECONDS, DEFAULT_CONNECTION_TIMEOUT,
+            EV_ADD | EV_ENABLE, NOTE_SECONDS, TIMEOUT_CLEANUP_FREQUENCY,
             NULL);
     if (kevent(server->qfd, listen_ev, 3, NULL, 0, NULL) == -1) {
         fprintf(stderr, "Unable to add server sockfd, term pipe read and "

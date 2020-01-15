@@ -47,6 +47,16 @@
 static char default_page[] = "/index.html";
 
 
+
+void http_close(struct http *h) {
+    if (h->fd != -1) {
+        close(h->fd);
+    }
+    printf("closeded\n");
+    http_clear(h);
+}
+
+
 static const char * const msgs[] = {
     "000 None",
     "100 Continue",
@@ -409,15 +419,13 @@ static int fd_verify(struct http *p) {
     if (fstat(p->fd, &stat) != 0) {
 #endif
         fprintf(stderr, "could not stat file, reason: %s", strerror(errno));
-        close(p->fd);
-        p->fd = -1;
+        http_close(p);
         return -1;
     }
 
     if (!S_ISREG(stat.st_mode)) {
         // not allowed to open anything besides regular files
-        close(p->fd);
-        p->fd = -1;
+        http_close(p);
         return -1;
     }
 
@@ -650,7 +658,7 @@ int http_parse(struct http *p, dmsg_list *req) {
             }
             if (parse_version(p, version) != 0) {
                 // not HTTP/1.0 or HTTP/1.1
-                close(p->fd);
+                http_close(p);
                 set_state(p, RESPONSE);
                 set_status(p, http_version_not_supported);
                 return HTTP_ERR;
@@ -727,7 +735,7 @@ int http_respond(struct http *p, int fd) {
 #endif
             if (read < 0) {
                 // likely connection was killed
-                close(p->fd);
+                http_close(p);
                 set_state(p, REQUEST);
                 return HTTP_CLOSE;
             }
@@ -741,10 +749,10 @@ int http_respond(struct http *p, int fd) {
             return HTTP_ERR;
     }
 
-    close(p->fd);
-    p->fd = -1;
+    int _keep_alive = keep_alive(p);
+    http_close(p);
     set_state(p, REQUEST);
-    return keep_alive(p) ? HTTP_KEEP_ALIVE : HTTP_CLOSE;
+    return _keep_alive ? HTTP_KEEP_ALIVE : HTTP_CLOSE;
 }
 
 

@@ -160,8 +160,16 @@ void http_exit();
 
 
 static __inline void http_clear(struct http *h) {
-    __builtin_memset(h, 0, sizeof(struct http));
+    h->status = 0;
+    h->fd = -1;
 }
+
+/*
+ * deallocates/closes any memory or files being used by this http struct and
+ * resets the state of it. It must be called on an initialized http struct
+ * (for example one that has been cleared with http_clear)
+ */
+void http_close(struct http *h);
 
 /*
  * parses an http request, storing necessary metadata about the request in
