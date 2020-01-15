@@ -423,6 +423,7 @@ static int fd_verify(struct http *p) {
 
     p->file_size = stat.st_size;
     p->offset = 0;
+    printf("set 2 zer0\n");
 
     return 0;
 }
@@ -649,6 +650,7 @@ int http_parse(struct http *p, dmsg_list *req) {
             }
             if (parse_version(p, version) != 0) {
                 // not HTTP/1.0 or HTTP/1.1
+                close(p->fd);
                 set_state(p, RESPONSE);
                 set_status(p, http_version_not_supported);
                 return HTTP_ERR;
@@ -709,28 +711,29 @@ int http_respond(struct http *p, int fd) {
 
             if (p->fd == -1) {
                 // then we have sent all we need to, can reset the state
-                set_state(p, REQUEST);
                 break;
             }
+            set_state(p, SENDING_FILE);
         case SENDING_FILE:
             // need to send requested file across the socket
 
             rem = p->file_size - p->offset;
 #ifdef __linux__
             read = sendfile64(fd, p->fd, &p->offset, rem);
-            printf("read %ld, len %lu, rem %lu, err %s\n", read,
-                    p->file_size, rem, strerror(errno));
 #elif __APPLE__
             read = sendfile(p->fd, fd, p->offset, &rem, NULL, 0);
             read = (read == -1) ? read : rem;
             p->offset += rem;
-            printf("read %lld, len %llu, rem %llu, err %s\n", rem,
-                    p->file_size, p->file_size - p->offset, strerror(errno));
 #endif
             if (read < 0) {
                 // likely connection was killed
+                close(p->fd);
                 set_state(p, REQUEST);
                 return HTTP_CLOSE;
+            }
+            if (p->offset != p->file_size) {
+                // we have not yet sent the whole message
+                return HTTP_NOT_DONE;
             }
             break;
         default:
@@ -738,6 +741,9 @@ int http_respond(struct http *p, int fd) {
             return HTTP_ERR;
     }
 
+    close(p->fd);
+    p->fd = -1;
+    set_state(p, REQUEST);
     return keep_alive(p) ? HTTP_KEEP_ALIVE : HTTP_CLOSE;
 }
 

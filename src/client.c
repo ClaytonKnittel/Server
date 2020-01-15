@@ -45,13 +45,27 @@ static int parse_request(struct client *client) {
 }
 
 int receive_bytes(struct client *client) {
-    /*ssize_t n_read =*/ dmsg_read(&client->log, client->connfd);
+    ssize_t n_read = dmsg_read(&client->log, client->connfd);
+
+    if (n_read == 0) {
+        // if nothing was read, then we have read all we need to (i.e. we can
+        // safely close the socket if a read hangup signal was received)
+        return READ_COMPLETE;
+    }
 
     return parse_request(client);
 }
 
+#include <stdlib.h>
+
 int receive_bytes_n(struct client *client, size_t max) {
-    /*ssize_t n_read =*/ dmsg_read_n(&client->log, client->connfd, max);
+    ssize_t n_read = dmsg_read_n(&client->log, client->connfd, max);
+
+    if (n_read == 0) {
+        // if nothing was read, then we have read all we need to (i.e. we can
+        // safely close the socket if a read hangup signal was received)
+        return READ_COMPLETE;
+    }
 
     return parse_request(client);
 }

@@ -484,13 +484,13 @@ static int read_from(struct server *server, struct client *client, int thread) {
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_WRITE,
                EV_ADD | EV_ENABLE | EV_DISPATCH, 0, 0, client);
-        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+        CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
         struct epoll_event read_ev = {
             .events = EPOLLOUT | EPOLLRDHUP | EPOLLONESHOT,
             .data.ptr = client
         };
-        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+        CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
                     &read_ev));
 #endif
     }
@@ -500,19 +500,19 @@ static int read_from(struct server *server, struct client *client, int thread) {
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_READ,
                EV_ENABLE | EV_DISPATCH, 0, 0, client);
-        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+        CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
         struct epoll_event read_ev = {
             .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
             .data.ptr = client
         };
-        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+        CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
                     &read_ev));
 #endif
     }
 
     renew_client_timeout(server, client);
-
+    return ret;
 }
 
 
@@ -526,13 +526,13 @@ static int write_to(struct server *server, struct client *client, int thread) {
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_WRITE,
                EV_ENABLE | EV_DISPATCH, 0, 0, client);
-        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+        CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
         struct epoll_event read_ev = {
             .events = EPOLLOUT | EPOLLRDHUP | EPOLLONESHOT,
             .data.ptr = client
         };
-        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+        CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
                     &read_ev));
 #endif
     }
@@ -541,23 +541,22 @@ static int write_to(struct server *server, struct client *client, int thread) {
         struct kevent event;
         EV_SET(&event, client->connfd, EVFILT_READ,
                EV_ADD | EV_ENABLE | EV_DISPATCH, 0, 0, client);
-        return CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+        CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
 #elif __linux__
         struct epoll_event read_ev = {
             .events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT,
             .data.ptr = client
         };
-        return CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
+        CHECK(epoll_ctl(server->qfd, EPOLL_CTL_MOD, client->connfd,
                     &read_ev));
 #endif
     }
     else /* ret == CLIENT_CLOSE_CONNECTION */ {
         disconnect(server, client, thread);
-        return 0;
     }
 
     renew_client_timeout(server, client);
-    return 0;
+    return ret;
 }
 
 
@@ -668,11 +667,28 @@ static void* _run(void *server_arg) {
                     event.events & EPOLLIN
 #endif
                     ) {
-                read_from(server, client, thread);
+                ret = read_from(server, client, thread);
             }
-            else /* event.filter == EVFILT_WRITE or
-                    event.events & EPOLLOUT */ {
-                write_to(server, client, thread);
+            else if (
+#ifdef __APPLE__
+                    event.filter == EVFILT_WRITE
+#elif __linux__
+                    event.events & EPOLLOUT
+#endif
+                    ) {
+                ret = write_to(server, client, thread);
+            }
+            // after completing the read/write, check if the read-end of the
+            // socket has been closed
+            if (
+                    (ret == READ_COMPLETE || ret == CLIENT_KEEP_ALIVE) &&
+#ifdef __APPLE__
+                    event.flags & EV_EOF
+#elif __linux__
+                    event.events & EPOLLRDHUP
+#endif
+                    ) {
+                disconnect(server, client, thread);
             }
         }
     }

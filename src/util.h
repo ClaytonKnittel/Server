@@ -20,6 +20,11 @@
         __retval;   \
     })
 
+
+#define MAX(x, y) ((x) < (y) ? (y) : (x))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+
+
 // gives the character width of the decimal representation of
 // the number 2 ^ pow2, where '^' is the power operation
 int dec_width(int pow2);
