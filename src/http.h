@@ -43,9 +43,11 @@ typedef off_t off64_t;
 // reading in the body of the message
 #define BODY 2
 
-// finished reading message, ready to respond
+// finished reading message, ready to write response headers into client's log
 #define RESPONSE 3
 
+// currently in the process of sending requested file
+#define SENDING_FILE 4
 
 
 /* response status-codes */
@@ -103,7 +105,7 @@ enum status {
 #define HTTP_1_1 0x1
 
 // keep-alive
-#define KEEP_ALIVE 0x2
+#define KEEP_ALIVE 0x80000
 
 // method
 #define OPTIONS 0x00
@@ -126,14 +128,14 @@ struct http {
     /*
      * bitpacking all states in status variable:
      *  V - HTTP version
-     *  A - keep-alive (1 = yes, 0 = no)
      *  F - state (of FSM)
      *  M - method
      *  S - status
      *  T - MIME type of requested file
+     *  A - keep-alive (1 = yes, 0 = no)
      *
      * | msb                         lsb |
-     * ________ _____TTT TTSSSSSS MMMMFFAV
+     * ________ ____ATTT TTSSSSSS MMMMFFFV
      *
      */
     int status;
@@ -145,6 +147,10 @@ struct http {
 
     // the size of the requested file, in bytes
     off64_t file_size;
+
+    // number of bytes of data that have already been transmitted across the
+    // connection
+    off64_t offset;
 };
 
 int http_init();

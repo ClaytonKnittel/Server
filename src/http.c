@@ -33,6 +33,8 @@
 #define HTTP_MALFORMED_OPTION 4
 
 
+// maximum size of header field that can be sent
+#define MAX_HEADER_SIZE 8192
 // size of buffer to hold each line from request
 // (max method size (7)) + SP + URI + SP + (max version size (8)) + LF
 #define MAX_LINE (8 + MAX_URI_SIZE + 10)
@@ -268,29 +270,17 @@ static __inline char get_version(struct http *p) {
 }
 
 /*
- * sets keep-alive bit in http struct to let the program know not to
- * immediately terminate the connection with the client after responding
- */
-static __inline void set_keep_alive(struct http *p) {
-    p->status |= KEEP_ALIVE;
-}
-
-static __inline int keep_alive(struct http *p) {
-    return (p->status & KEEP_ALIVE) != 0;
-}
-
-/*
  * sets state of the http struct, legal values are REQUEST, HEADERS, BODY,
  * and RESPONSE
  */
 static __inline void set_state(struct http *p, char state) {
     char *b = (char*) &p->status;
-    *b = (state << 2) | (0xf3 & *b);
+    *b = (state << 1) | (0xf1 & *b);
 }
 
 static __inline char get_state(struct http *p) {
     char *b = (char*) &p->status;
-    return (0x0c & *b) >> 2;
+    return (0x0e & *b) >> 1;
 }
 
 /*
@@ -347,6 +337,18 @@ static __inline const char* get_mime_type(struct http *p) {
         ((1U << MIME_TYPE_BITS) - 1);
 
     return mime_type.type[type];
+}
+
+/*
+ * sets keep-alive bit in http struct to let the program know not to
+ * immediately terminate the connection with the client after responding
+ */
+static __inline void set_keep_alive(struct http *p) {
+    p->status |= KEEP_ALIVE;
+}
+
+static __inline int keep_alive(struct http *p) {
+    return (p->status & KEEP_ALIVE) != 0;
 }
 
 
@@ -420,6 +422,7 @@ static int fd_verify(struct http *p) {
     }
 
     p->file_size = stat.st_size;
+    p->offset = 0;
 
     return 0;
 }
@@ -600,6 +603,8 @@ int http_parse(struct http *p, dmsg_list *req) {
                return HTTP_ERR;
             }
 
+            http_clear(p);
+
 #define TEST_BAD_FORMAT \
             if (tmp == NULL) { \
                 set_state(p, RESPONSE); \
@@ -669,58 +674,71 @@ int http_parse(struct http *p, dmsg_list *req) {
 
 
 int http_respond(struct http *p, int fd) {
-    int ret;
+    char buf[MAX_HEADER_SIZE];
+    int ret, len;
+    off64_t rem;
+    size_t read;
 
-    if (get_state(p) != RESPONSE) {
-        // should not call respond if not in respond state
-        return HTTP_ERR;
-    }
+    switch (get_state(p)) {
+        case RESPONSE:
+            // need to write response headers to the socket. Note: these will
+            // always fit in the socket's kernel buffer if the polling
+            // mechanisms only call subsequent writes after the buffer has
+            // been entirely cleared (linux socket buffer size is 16KB by
+            // default, and OSX's is 32KB)
 
-    char buf[4096];
-    int len = snprintf(buf, sizeof(buf),
-            "HTTP/1.1 %s\r\n"
+            len = snprintf(buf, sizeof(buf),
+                    "HTTP/1.1 %s\r\n"
 #ifdef __APPLE__
-            "Content-Length: %llu\r\n"
+                    "Content-Length: %llu\r\n"
 #elif __linux__
-            "Content-Length: %lu\r\n"
+                    "Content-Length: %lu\r\n"
 #endif
-            "Content-Type: %s\r\n"
-            "\r\n",
-            get_status_str((unsigned) get_status(p)), p->file_size,
-            get_mime_type(p));
+                    "Content-Type: %s\r\n"
+                    "\r\n",
+                    get_status_str((unsigned) get_status(p)), p->file_size,
+                    get_mime_type(p));
 
-    ret = write(fd, buf, len);
+            ret = write(fd, buf, len);
 
-    if (ret == -1 && errno == EPIPE) {
-        // then the client connection was closed on the read end
-        return HTTP_CLOSE;
-    }
+            if (ret == -1 && errno == EPIPE) {
+                // then the client connection was closed on the read end
+                set_state(p, REQUEST);
+                return HTTP_CLOSE;
+            }
 
-    if (p->fd != -1) {
-#ifdef __linux__
-        off64_t rem = p->file_size;
-        ssize_t read;
-        off64_t offset = 0;
-        while ((read = sendfile64(fd, p->fd, &offset, rem)) < rem) {
-            if (read < 0) {
+            if (p->fd == -1) {
+                // then we have sent all we need to, can reset the state
+                set_state(p, REQUEST);
                 break;
             }
-            rem -= read;
-        }
-        printf("read %ld, len %lu, rem %lu, err %s\n", read, p->file_size, rem, strerror(errno));
+        case SENDING_FILE:
+            // need to send requested file across the socket
+
+            rem = p->file_size - p->offset;
+#ifdef __linux__
+            read = sendfile64(fd, p->fd, &p->offset, rem);
+            printf("read %ld, len %lu, rem %lu, err %s\n", read,
+                    p->file_size, rem, strerror(errno));
 #elif __APPLE__
-        off64_t n_bytes = p->file_size;
-        sendfile(p->fd, fd, 0, &n_bytes, NULL, 0);
+            read = sendfile(p->fd, fd, p->offset, &rem, NULL, 0);
+            read = (read == -1) ? read : rem;
+            p->offset += rem;
+            printf("read %lld, len %llu, rem %llu, err %s\n", rem,
+                    p->file_size, p->file_size - p->offset, strerror(errno));
 #endif
+            if (read < 0) {
+                // likely connection was killed
+                set_state(p, REQUEST);
+                return HTTP_CLOSE;
+            }
+            break;
+        default:
+            // should not call if not in a response state
+            return HTTP_ERR;
     }
 
-    if (keep_alive(p)) {
-        http_clear(p);
-        return HTTP_KEEP_ALIVE;
-    }
-    else {
-        return HTTP_CLOSE;
-    }
+    return keep_alive(p) ? HTTP_KEEP_ALIVE : HTTP_CLOSE;
 }
 
 
