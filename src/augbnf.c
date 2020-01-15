@@ -588,7 +588,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
                     PROPAGATE_ERR;
                 }
                 if ((unsigned char) val >= NUM_CHARS) {
-                    BNF_ERR("character 0x%2.2x is out of bounds\n", val);
+                    BNF_ERR("character 0x%2.2x is out of bounds\n", ((unsigned int) val) & 0xff);
                     RETURN_ERR(bad_cc);
                 }
 
@@ -673,7 +673,7 @@ static token_t* token_group_parse(parse_state *state, char term_on) {
             buf++;
 
             if ((unsigned char) val >= NUM_CHARS) {
-                BNF_ERR("character 0x%2.2x is out of bounds\n", val);
+                BNF_ERR("character 0x%2.2x is out of bounds\n", ((unsigned int) val) & 0xff);
                 RETURN_ERR(bad_single_char_lit);
             }
 

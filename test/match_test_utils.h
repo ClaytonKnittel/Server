@@ -6,6 +6,111 @@
 #include "../src/vprint.h"
 #include "../src/match.h"
 
+
+typedef struct size_info {
+    size_t n_patterns;
+    size_t n_tokens;
+} size_info_t;
+
+
+
+static void _pattern_counts(pattern_t *patt, size_info_t *counts,
+        hashmap *seen) {
+
+    if (hash_insert(seen, patt, NULL) != 0) {
+        // already seen
+        return;
+    }
+
+    if (patt_type(patt) == TYPE_TOKEN) {
+        token_t *token = &patt->token;
+        counts->n_tokens++;
+        if (token->node != NULL) {
+            _pattern_counts(token->node, counts, seen);
+        }
+        if (token->next != NULL) {
+            _pattern_counts((pattern_t*) token->next, counts, seen);
+        }
+        if (token->alt != NULL) {
+            _pattern_counts((pattern_t*) token->alt, counts, seen);
+        }
+    }
+    else {
+        counts->n_patterns++;
+    }
+
+}
+
+
+/*
+ * calculates the number of tokens and patterns in this pattern structure,
+ * returning the result as a (n_patterns, n_tokens) pair
+ */
+size_info_t pattern_counts(token_t *patt) {
+    size_info_t ret = {
+        .n_patterns = 0,
+        .n_tokens = 0
+    };
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+
+    _pattern_counts((pattern_t*) patt, &ret, &seen);
+
+    hash_free(&seen);
+    return ret;
+}
+
+
+
+
+static void _pattern_size(pattern_t *patt, size_t *size, hashmap *seen) {
+
+    if (hash_insert(seen, patt, NULL) != 0) {
+        // already seen
+        return;
+    }
+
+    if (patt_type(patt) == TYPE_TOKEN) {
+        token_t *token = &patt->token;
+        if (token->node != NULL) {
+            _pattern_size(token->node, size, seen);
+        }
+        if (token->next != NULL) {
+            _pattern_size((pattern_t*) token->next, size, seen);
+        }
+        if (token->alt != NULL) {
+            _pattern_size((pattern_t*) token->alt, size, seen);
+        }
+    }
+    switch (patt_type(patt)) {
+        case TYPE_LITERAL:
+            (*size) += sizeof(literal) + patt->lit.length;
+            break;
+        case TYPE_CC:
+            (*size) += sizeof(char_class);
+            break;
+        case TYPE_TOKEN:
+            (*size) += sizeof(token_t);
+    }
+
+}
+
+
+/*
+ * calculates the size of allocated memory taken by this pattern in bytes
+ */
+size_t pattern_size(token_t *patt) {
+    size_t size = 0;
+    hashmap seen;
+    hash_init(&seen, &ptr_hash, &ptr_cmp);
+
+    _pattern_size((pattern_t*) patt, &size, &seen);
+
+    hash_free(&seen);
+    return size;
+}
+
+
 static unsigned count_;
 
 static void _bnf_print(token_t *patt, hashmap *seen) {

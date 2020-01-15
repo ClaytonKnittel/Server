@@ -290,18 +290,6 @@ int pattern_match(token_t *patt, char *buf, size_t n_matches,
 void pattern_free(token_t *patt);
 
 
-typedef struct size_info {
-    size_t n_patterns;
-    size_t n_tokens;
-} size_info_t;
-
-/*
- * calculates the number of tokens and patterns in this pattern structure,
- * returning the result as a (n_patterns, n_tokens) pair
- */
-size_info_t pattern_size(token_t *patt);
-
-
 /*
  * consolidate the given pattern as much as possible, by potentially
  * merging multiple tokens into one, getting rid of redundant tokens,

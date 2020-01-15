@@ -15,27 +15,6 @@
 
 
 int main() {
-    /*{
-        char bnf1[] =
-            "rule1 = (\"a\" | \"ab\") \"d\"";
-
-        token_t *ret = bnf_parseb(bnf1, sizeof(bnf1) - 1);
-        assert_neq((long) ret, (long) NULL);
-        assert(tmp_check(ret), 0);
-        assert(bnf_consistency_check(ret), 0);
-        assert(tmp_check(ret), 0);
-        bnf_print(ret);
-
-        assert(pattern_match(ret, "abd", 0, NULL), 0);
-        assert(pattern_match(ret, "add", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(ret, "acbd", 0, NULL), MATCH_FAIL);
-        assert(pattern_match(ret, "bacd", 0, NULL), MATCH_FAIL);
-        assert(tmp_check(ret), 0);
-
-        pattern_free(ret);
-    }
-    exit(0);*/
-
 
     //silence_stdout();
     char_class m;
@@ -804,7 +783,7 @@ int main() {
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
-        size_info_t size = pattern_size(ret);
+        size_info_t size = pattern_counts(ret);
         printf("size of pattern: %lu tokens, %lu patterns\n",
                 size.n_tokens, size.n_patterns);
 
@@ -830,9 +809,12 @@ int main() {
         assert(bnf_consistency_check(ret), 0);
         assert(tmp_check(ret), 0);
 
-        size_info_t size = pattern_size(ret);
-        printf("size of uri spec pattern: %lu tokens, %lu patterns\n",
+        size_info_t size = pattern_counts(ret);
+        printf("counts of uri spec pattern: %lu tokens, %lu patterns\n",
                 size.n_tokens, size.n_patterns);
+
+        size_t uri_size = pattern_size(ret);
+        printf("size of uri spec pattern: %lu bytes\n", uri_size);
 
 
         assert(pattern_match(ret, "", 0, NULL), 0);

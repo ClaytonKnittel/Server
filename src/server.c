@@ -618,8 +618,8 @@ static void* _run(void *server_arg) {
                     epoll_wait(server->qfd, &event, 1, -1)
 #endif
                     ) == -1) {
-            fprintf(stderr, QUEUE_T " call failed, reason: %s\n",
-                    strerror(errno));
+            fprintf(stderr, QUEUE_T " call failed on fd %d, reason: %s\n",
+                    server->qfd, strerror(errno));
             continue;
         }
 #ifdef __APPLE__

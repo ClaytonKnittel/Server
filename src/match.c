@@ -244,51 +244,6 @@ void pattern_free(token_t *token) {
 }
 
 
-
-static void _pattern_size(pattern_t *patt, size_info_t *counts,
-        hashmap *seen) {
-
-    if (hash_insert(seen, patt, NULL) != 0) {
-        // already seen
-        return;
-    }
-
-    if (patt_type(patt) == TYPE_TOKEN) {
-        token_t *token = &patt->token;
-        counts->n_tokens++;
-        if (token->node != NULL) {
-            _pattern_size(token->node, counts, seen);
-        }
-        if (token->next != NULL) {
-            _pattern_size((pattern_t*) token->next, counts, seen);
-        }
-        if (token->alt != NULL) {
-            _pattern_size((pattern_t*) token->alt, counts, seen);
-        }
-    }
-    else {
-        counts->n_patterns++;
-    }
-
-}
-
-
-size_info_t pattern_size(token_t *patt) {
-    size_info_t ret = {
-        .n_patterns = 0,
-        .n_tokens = 0
-    };
-    hashmap seen;
-    hash_init(&seen, &ptr_hash, &ptr_cmp);
-
-    _pattern_size((pattern_t*) patt, &ret, &seen);
-
-    hash_free(&seen);
-    return ret;
-}
-
-
-
 /*
  * removes a reference to the pattern by decreasing the reference count of the
  * pattern and freeing the pattern if its reference count is now 0
