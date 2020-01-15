@@ -52,7 +52,6 @@ void http_close(struct http *h) {
     if (h->fd != -1) {
         close(h->fd);
     }
-    printf("closeded\n");
     http_clear(h);
 }
 
@@ -431,7 +430,6 @@ static int fd_verify(struct http *p) {
 
     p->file_size = stat.st_size;
     p->offset = 0;
-    printf("set 2 zer0\n");
 
     return 0;
 }

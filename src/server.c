@@ -51,7 +51,7 @@ typedef struct client epoll_data_ptr_t;
 
 // the number of seconds to wait between successive interrupts by the timer file
 // descriptor, which is responsible for closing connections that have timed out
-#define TIMEOUT_CLEANUP_FREQUENCY 5000
+#define TIMEOUT_CLEANUP_FREQUENCY 5
 
 
 #define LOCKED 0
@@ -445,10 +445,12 @@ static int disconnect(struct server *server, struct client *client, int thread) 
 #endif
 
 #ifdef __APPLE__
-    struct kevent event;
-    EV_SET(&event, client->connfd, EVFILT_READ,
+    struct kevent events[2];
+    EV_SET(&events[0], client->connfd, EVFILT_READ,
             EV_DELETE, 0, 0, NULL);
-    ret = CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
+    EV_SET(&events[1], client->connfd, EVFILT_WRITE,
+            EV_DELETE, 0, 0, NULL);
+    ret = CHECK(kevent(server->qfd, events, 2, NULL, 0, NULL) == -1);
 #elif __linux__
     ret = CHECK(epoll_ctl(server->qfd, EPOLL_CTL_DEL, client->connfd, NULL));
 #endif
@@ -458,6 +460,14 @@ static int disconnect(struct server *server, struct client *client, int thread) 
         acq_list_lock(server);
         list_remove(client);
         rel_list_lock(server);
+    
+        printf("conn list: [");
+        client = server->client_list.first;
+        while (client != server_as_client_node(server)) {
+            printf("%d, ", client->connfd);
+            client = client->next;
+        }
+        printf("]\n");
 
         free(client);
     }
@@ -539,6 +549,10 @@ static int write_to(struct server *server, struct client *client, int thread) {
     else if (ret == CLIENT_KEEP_ALIVE) {
 #ifdef __APPLE__
         struct kevent event;
+        // remove write event listener
+        //EV_SET(&event[0], client->connfd, EVFILT_WRITE,
+        //       EV_DELETE, 0, 0, client);
+        // add read event listener
         EV_SET(&event, client->connfd, EVFILT_READ,
                EV_ADD | EV_ENABLE | EV_DISPATCH, 0, 0, client);
         CHECK(kevent(server->qfd, &event, 1, NULL, 0, NULL) == -1);
