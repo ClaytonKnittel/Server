@@ -48,3 +48,47 @@ The only HTTP versions supported are 1.0 and 1.1, so http_version is simply
     http-version = "HTTP/1.0" | "HTTP/1.1"
 ```
 
+
+The options fields are subsequently parsed, but are much simpler to parse since their form is very simple. Below is the list
+of supported options
+
+```abnf
+Connection: keep-alive | close | upgrade
+```
+```abnf
+Upgrade: websocket
+```
+
+
+## Concurrency, Memory Management and Shutdown
+
+The parallelization is implemented with Posix threads, and all of the threads share the same ``server`` struct from which to
+read and track data from all connections, and they also share a single ``epoll`` or ``kqueue`` instance, which handles the
+multiplexing of connection management.
+
+#### Client Partitioning
+No single event can be passed to two different threads from the ``epoll``/``kqueue`` syscall because with ``epoll``ing, ``EPOLLONESHOT`` is set with each client connection, disabling the file descriptor in the event queue until it is re-added
+(which is done after the thread that pulled it out of the queue finishes its work on it), and with ``kqueue``, ``EV_DISPATCH`` is set, which disables the file descriptor in a similar way to ``EPOLLONESHOT``, needing to be re-enabled after work has
+complete. In this way, no single connection can be processed by two separate threads, and thus no data races are possible
+in the client structs themselves.
+
+#### Socket Shutdown
+If any write to a client socket fails with ``EPIPE``, the connection is immediately closed, the client's file descriptor is
+removed from the event multiplexer, and all dynamically-allocated memory associated with the client is freed. If 0 bytes are
+ever read from a socket, then the connection is closed similarly (but not on a read hangup, as there still may be some data
+which has not yet been parsed). If a bad HTTP request is received, then the client is immediately transitioned into a response
+state with an appropriate error level set (corresponding to an HTTP response code), and the response is sent.
+
+#### Server Shutdown
+To clean up all threads on server shutdown, a pipe is initialized upon server creation and added to the event queue. It is put
+in level-triggered mode, thus when written to, all threads will eventually receive it from the event queue and gracefully exit
+the main loop. After all threads have been joined back with the main thread (which is also one of the worker threads running
+the main loop), all client connections are closed and associated data is freed, and then the server is shut down and all
+remaining data is freed.
+
+#### Connection Timeout
+Every time a connection is written to or read from, the timeout of the connection is updated by the server to be some number
+of seconds in the future (5 seconds by default), after which the connection is no longer guaranteed to be kept alive. There is
+a periodic timer which goes off every so many seconds (5 by default), which triggers one of the threads to iterate from the
+back of the list of client connections in the server and disconnect all which have expired. On Linux, this is implmemented
+with a timer file, and on OSX, with the special ``EVFILT_TIMER`` construct in ``kqueue``.
