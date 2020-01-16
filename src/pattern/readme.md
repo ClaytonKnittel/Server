@@ -113,8 +113,9 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see bel
 
  is not allowed, as it is unclear what the | should be branching between. To do this, you would need to use parenthesis to group either the first two or last two tokens
 
+ 
 
-> _Note:_ Unreserved characters include the following:
+_Note:_ Unreserved characters include the following:
      alpha ('a' - 'z' and 'A' - 'Z')
      numeric ('0' - '9')
      '-'
