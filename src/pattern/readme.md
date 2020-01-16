@@ -6,7 +6,7 @@ An implementation of generic pattern matching and an Augmented BNF compiler. The
 
 Implementation of an Augmented Backus-Naur grammar parser
 
-#### Rules:
+#### Basic Rules:
 
 * A semicolon `;` means the rest of the line is to be treated as a comment
 
@@ -43,6 +43,16 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 
  then Rule1 would match only the string "abc"
 
+* By default, a line must be fully matched by a rule, meaning, for example,
+
+```abnf
+     Rule3 = "a"
+```
+
+ would not match "ac"
+ 
+#### Branching (``|``) and Character Classes:
+
 * If two tokens are separated by a "|", then either may be taken, with precedence on the first, i.e.
 
 ```abnf
@@ -56,6 +66,14 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 ```
 
  it would match the ``"a"`` in the or-ed group followed by the optional ``"c"``, and not the ``"ac"`` in the or-ed group, as the ``"a"`` matched first and successfully matched the rest of the string.
+
+* Concatenation and branching (``|``) cannot be mixed, i.e.
+
+```abnf
+     Rule7 = "a" "b" | "c"
+```
+
+ is not allowed, as it is unclear what the ``|`` should be branching between. To do this, you would need to use parenthesis to group either the first two or last two tokens
 
 * Classes of characters are defined as a set of allowable characters, which are written as all of the characters in the character class between angle brackets (``<>``). For example, you could match a group of characters by writing
 
@@ -77,13 +95,7 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 
  would match a space ``' '``, a newline character ``'\n'``, or a tab ``'\t'``
 
-* By default, a line must be fully matched by a rule, meaning, for example,
-
-```abnf
-     Rule3 = "a"
-```
-
- would not match "ac"
+#### Quantifiers:
 
 * A ``<m>*<n>`` before a token indicates how many of the token to expect, with m being the minimum number of occurences and n being the max. Omitting m means there is no minimum (even 0 is allowed), and omitting n means there is no maximum. For example,
 
@@ -95,6 +107,8 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 
 * Putting square brackets ``[]`` around a token is shorthand for putting ``*1`` before it, i.e. it means the token is optional (expect either 0 or 1 occurences of it)
 
+#### Capturing:
+
 * Putting curly braces ``{}`` around a token or group of tokens indicates that it is a capturing group, meaning if it is chosen as part of the rule matching an expression, it will be put in a list of captured groups when parsed, i.e.
 
 ```abnf
@@ -103,6 +117,8 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 
  would match "abc", and "b" would be the only captured group returned. The order in which the capturing groups are declared in the file they are written in indicates their indices in the list of matches, and thus a single capturing rule that is used in multiple places can capture at most one substring
 
+#### Grouping:
+
 * Parenthesis can be used to group tokens without needing to create separate rules for them, i.e.
 
 ```abnf
@@ -110,14 +126,6 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see _no
 ```
 
  would match ``"ab"`` and ``"ac"``, but without parenthesis, you would need a separate rule for the ``("b" | "c")``, otherwise the | would be ambiguous
-
-* Concatenation and branching (``|``) cannot be mixed, i.e.
-
-```abnf
-     Rule7 = "a" "b" | "c"
-```
-
- is not allowed, as it is unclear what the ``|`` should be branching between. To do this, you would need to use parenthesis to group either the first two or last two tokens
 
  
 
