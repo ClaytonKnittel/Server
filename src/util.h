@@ -7,6 +7,7 @@
 #include <time.h>
 #include <stddef.h>
 
+#include "vprint.h"
 
 #define TOSTRING(s) #s
 
@@ -14,8 +15,8 @@
     ({    \
         int __retval = (val);   \
         if (__retval == -1) {   \
-            vfprintf(stderr, TOSTRING(val) " call failed in " __FILE__ ":"  \
-                    TOSTRING(__LINE__) ", reason: %s", strerror(errno)); \
+            vfprintf(stderr, TOSTRING(val) " call failed in " __FILE__ ":%d"  \
+                    ", reason: %s", __LINE__, strerror(errno)); \
         }   \
         __retval;   \
     })
@@ -23,6 +24,26 @@
 
 #define MAX(x, y) ((x) < (y) ? (y) : (x))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
+
+/*
+#define malloc(size) \
+    ({ \
+        void* ptr = malloc(size); \
+        printf(P_GREEN "malloccing %p, " __FILE__ ":%d" P_RESET "\n", ptr, __LINE__); \
+        ptr; \
+    })
+#define calloc(ptr, s, t) \
+    { \
+        void* ptr = calloc(s, t); \
+        printf(P_GREEN "calloccing %p, " __FILE__ ":%d" P_RESET "\n", ptr, __LINE__); \
+        ptr; \
+    }
+#define free(ptr) \
+    { \
+        printf(P_RED "Freeing %p, " __FILE__ ":%d" P_RESET "\n", (ptr), __LINE__); \
+        free(ptr); \
+    }
+*/
 
 
 // gives the character width of the decimal representation of

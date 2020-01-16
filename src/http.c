@@ -52,6 +52,7 @@ void http_close(struct http *h) {
     if (h->fd != -1) {
         close(h->fd);
     }
+    h->fd = -1;
     http_clear(h);
 }
 
@@ -656,7 +657,8 @@ int http_parse(struct http *p, dmsg_list *req) {
             }
             if (parse_version(p, version) != 0) {
                 // not HTTP/1.0 or HTTP/1.1
-                http_close(p);
+                close(p->fd);
+                p->fd = -1;
                 set_state(p, RESPONSE);
                 set_status(p, http_version_not_supported);
                 return HTTP_ERR;

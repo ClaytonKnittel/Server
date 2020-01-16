@@ -81,11 +81,13 @@ static void list_insert(struct server *server, struct client *client) {
     client->prev = server->client_list.first->prev;
     server->client_list.first->prev = client;
     server->client_list.first = client;
+    printf("insert %d, mem %p\n", client->connfd, client);
 }
 
 static void list_remove(struct client *client) {
     client->next->prev = client->prev;
     client->prev->next = client->next;
+    printf("remove %d, mem %p\n", client->connfd, client);
 }
 
 #define server_as_client_node(server_ptr) \
@@ -121,7 +123,7 @@ static void renew_client_timeout(struct server *server, struct client *client) {
     acq_list_lock(server);
     list_remove(client);
     list_insert(server, client);
-
+    
     // renew the timeout of the connection
     set_expiration_timer(client);
     rel_list_lock(server);
@@ -424,6 +426,7 @@ static int accept_connection(struct server *server) {
     // set their expiration timer while the list lock is acquired so the
     // timeout values in the client list will be nondecreasing
     set_expiration_timer(client);
+
     rel_list_lock(server);
 
     return 0;
@@ -460,15 +463,7 @@ static int disconnect(struct server *server, struct client *client, int thread) 
         acq_list_lock(server);
         list_remove(client);
         rel_list_lock(server);
-    
-        printf("conn list: [");
-        client = server->client_list.first;
-        while (client != server_as_client_node(server)) {
-            printf("%d, ", client->connfd);
-            client = client->next;
-        }
-        printf("]\n");
-
+        printf("free client %d, mem %p\n", client->connfd, client);
         free(client);
     }
     else {
@@ -567,6 +562,7 @@ static int write_to(struct server *server, struct client *client, int thread) {
     }
     else /* ret == CLIENT_CLOSE_CONNECTION */ {
         disconnect(server, client, thread);
+        return ret;
     }
 
     renew_client_timeout(server, client);
