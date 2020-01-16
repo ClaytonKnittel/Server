@@ -14,7 +14,7 @@ Rules:
 ```abnf
      Rule = tokens...
 ```
-and can be arbitrarily nested. Rule names must only be unreserved chars (see below) to avoid any ambiguity. The main defining rule of a grammar is the first rule, and any rules that are not referenced in some subtree of the first rule are ignored.
+and can be arbitrarily nested. Rule names must only be unreserved chars (see _note_ below) to avoid any ambiguity. The main defining rule of a grammar is the first rule, and any rules that are not referenced in some subtree of the first rule are ignored.
 
 
 * If a rule is to take up more than one line, it must have parenthesis cross the line boundaries, otherwise the following lines will be ignored, i.e.
@@ -49,27 +49,33 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see bel
      Rule2 = "a" | "c" | "ca"
 ```
 
- would match only "a", "c", and "ca"
+ would match only "a", "c", and "ca". If, however, the rule was
+ 
+```abnf
+     Rule2 = ("a" | "c" | "ca") ["c"]
+```
 
-* You can match a group of characters by writing
+ it would match the ``"a"`` in the or-ed group followed by the optional ``"c"``, and not the ``"ac"`` in the or-ed group, as the ``"a"`` matched first and successfully matched the rest of the string.
+
+* Classes of characters are defined as a set of allowable characters, which are written as all of the characters in the character class between angle brackets (``<>``). For example, you could match a group of characters by writing
 
 ```abnf
      digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 ```
 
- or more concicely, using <>,
+ but, using character classes, more concisely
 
 ```abnf
      digit = <0123456789>
 ```
 
- which is equivalent to the above definition. Characters in the triangle brackets can be escaped by using a backslash, i.e.
+ which is equivalent to the above definition. Characters in the triangle brackets, just as in string literals, can be escaped by using a backslash, i.e.
 
 ```abnf
      whitespace = < \n\t>
 ```
 
- would match a space ' ', a newline character '\n', or a tab '\t'
+ would match a space ``' '``, a newline character ``'\n'``, or a tab ``'\t'``
 
 * By default, a line must be fully matched by a rule, meaning, for example,
 
@@ -79,17 +85,17 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see bel
 
  would not match "ac"
 
-* A <m>*<n> before a token indicates how many of the token to expect, with m being the minimum number of occurences and n being the max. Omitting m means there is no minimum (even 0 is allowed), and omitting n means there is no maximum. For example,
+* A ``<m>*<n>`` before a token indicates how many of the token to expect, with m being the minimum number of occurences and n being the max. Omitting m means there is no minimum (even 0 is allowed), and omitting n means there is no maximum. For example,
 
 ```abnf
-     Rule4 =Rule3
+     Rule4 = *Rule3
 ```
 
  would match "", "a", and "aaaaaa", but not "aaabaa"
 
-* Putting square brackets [] around a token is shorthand for putting1 before it, i.e. it means the token is optional (expect either 0 or 1 occurences of it)
+* Putting square brackets ``[]`` around a token is shorthand for putting ``*1`` before it, i.e. it means the token is optional (expect either 0 or 1 occurences of it)
 
-* Putting curly braces {} around a token or group of tokens indicates that it is a capturing group, meaning if it is chosen as part of the rule matching an expression, it will be put in a list of captured groups when parsed, i.e.
+* Putting curly braces ``{}`` around a token or group of tokens indicates that it is a capturing group, meaning if it is chosen as part of the rule matching an expression, it will be put in a list of captured groups when parsed, i.e.
 
 ```abnf
      Rule5 = "a" {"b"} "c"
@@ -103,25 +109,33 @@ and can be arbitrarily nested. Rule names must only be unreserved chars (see bel
      Rule6 = "a" ("b" | "c")
 ```
 
- would match "ab" and "ac", but without parenthesis, you would need a separate rule for the ("b" | "c"), otherwise the | would be ambiguous
+ would match ``"ab"`` and ``"ac"``, but without parenthesis, you would need a separate rule for the ``("b" | "c")``, otherwise the | would be ambiguous
 
-* Concatenation and branching (|) cannot be mixed, i.e.
+* Concatenation and branching (``|``) cannot be mixed, i.e.
 
 ```abnf
      Rule7 = "a" "b" | "c"
 ```
 
- is not allowed, as it is unclear what the | should be branching between. To do this, you would need to use parenthesis to group either the first two or last two tokens
+ is not allowed, as it is unclear what the ``|`` should be branching between. To do this, you would need to use parenthesis to group either the first two or last two tokens
 
  
 
 _Note:_ Unreserved characters include the following:
-     alpha ('a' - 'z' and 'A' - 'Z')
-     numeric ('0' - '9')
-     '-'
-     '_'
-     '.'
-     '!'
-     '~'
-     '@'
+
+* alpha (``'a' - 'z'`` and ``'A' - 'Z'``)
+
+* numeric (``'0' - '9'``)
+
+* ``'-'``
+
+* ``'_'``
+
+* ``'.'``
+
+* ``'!'``
+
+* ``'~'``
+
+* ``'@'``
 
