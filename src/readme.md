@@ -64,7 +64,8 @@ Upgrade: websocket
 
 The parallelization is implemented with Posix threads, and all of the threads share the same ``server`` struct from which to
 read and track data from all connections, and they also share a single ``epoll`` or ``kqueue`` instance, which handles the
-multiplexing of connection management.
+multiplexing of connection management. The only data structure that needs to be locked is the client list, which is done
+with a simple mutex lock implemented with gcc buitlin atomics.
 
 #### Client Partitioning
 No single event can be passed to two different threads from the ``epoll``/``kqueue`` syscall because with ``epoll``ing, ``EPOLLONESHOT`` is set with each client connection, disabling the file descriptor in the event queue until it is re-added
