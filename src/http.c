@@ -11,13 +11,13 @@
 #endif
 #include <sys/stat.h>
 
-#include "augbnf.h"
 #include "hashmap.h"
 #include "http.h"
-#include "match.h"
 #include "util.h"
 #include "vprint.h"
 
+#include "pattern/augbnf.h"
+#include "pattern/match.h"
 
 
 /* 

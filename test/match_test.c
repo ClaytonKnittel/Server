@@ -5,11 +5,12 @@
 #include "match_test_utils.h"
 #include "t_assert.h"
 
-#include "../src/augbnf.h"
 #include "../src/hashmap.h"
-#include "../src/match.h"
 #include "../src/util.h"
 #include "../src/vprint.h"
+
+#include "../src/pattern/augbnf.h"
+#include "../src/pattern/match.h"
 
 
 

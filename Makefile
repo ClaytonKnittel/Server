@@ -25,7 +25,7 @@ ODIR=.obj
 TEST_FOLDER=test
 
 
-SRC=$(wildcard $(SDIR)/*.c)
+SRC=$(shell find $(SDIR) -type f -name '*.c')
 OBJ=$(patsubst $(SDIR)/%.c,$(ODIR)/%.o,$(SRC))
 DEP=$(wildcard $(SDIR)/*.h)
 
@@ -40,8 +40,12 @@ OBJ_DEP=$(filter-out $(ODIR)/$(MAIN).o, $(OBJ))
 CC=gcc -MMD -MP
 EXE=srv
 
-$(shell mkdir -p .obj)
-$(shell mkdir -p .obj/test)
+DIRS=$(shell find $(SDIR) -type d)
+OBJDIRS=$(patsubst $(SDIR)/%,$(ODIR)/%,$(DIRS))
+
+$(shell mkdir -p $(ODIR))
+$(shell mkdir -p $(OBJDIRS))
+$(shell mkdir -p $(ODIR)/test)
 
 .PHONY: all
 all: $(EXE) $(TEST_FOLDER)

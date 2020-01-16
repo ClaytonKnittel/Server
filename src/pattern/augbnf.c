@@ -6,9 +6,9 @@
 #include <unistd.h>
 
 #include "augbnf.h"
-#include "hashmap.h"
-#include "vprint.h"
-#include "util.h"
+#include "../hashmap.h"
+#include "../vprint.h"
+#include "../util.h"
 
 
 // possible sources of data

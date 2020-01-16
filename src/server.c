@@ -81,13 +81,11 @@ static void list_insert(struct server *server, struct client *client) {
     client->prev = server->client_list.first->prev;
     server->client_list.first->prev = client;
     server->client_list.first = client;
-    printf("insert %d, mem %p\n", client->connfd, client);
 }
 
 static void list_remove(struct client *client) {
     client->next->prev = client->prev;
     client->prev->next = client->next;
-    printf("remove %d, mem %p\n", client->connfd, client);
 }
 
 #define server_as_client_node(server_ptr) \
@@ -463,7 +461,6 @@ static int disconnect(struct server *server, struct client *client, int thread) 
         acq_list_lock(server);
         list_remove(client);
         rel_list_lock(server);
-        printf("free client %d, mem %p\n", client->connfd, client);
         free(client);
     }
     else {

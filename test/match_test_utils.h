@@ -1,10 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../src/augbnf.h"
 #include "../src/hashmap.h"
 #include "../src/vprint.h"
-#include "../src/match.h"
+#include "../src/pattern/augbnf.h"
+#include "../src/pattern/match.h"
 
 
 typedef struct size_info {

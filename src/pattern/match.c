@@ -2,7 +2,7 @@
 #include <string.h>
 
 
-#include "hashmap.h"
+#include "../hashmap.h"
 #include "match.h"
 
 
