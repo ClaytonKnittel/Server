@@ -6,7 +6,7 @@ An implementation of generic pattern matching and an Augmented BNF compiler. The
 
 Implementation of an Augmented Backus-Naur grammar parser
 
-Rules:
+#### Rules:
 
 * A semicolon `;` means the rest of the line is to be treated as a comment
 
@@ -138,4 +138,60 @@ _Note:_ Unreserved characters include the following:
 * ``'~'``
 
 * ``'@'``
+
+
+
+## Pattern Matching
+
+Patterns are implemented as a finite state machine made up of tokens and patterns. Tokens define ways of moving throughout the machine, and patterns give constrains on when actions are allowed to be made on a token.
+
+#### Patterns can be one of three types:
+
+* Literal: just a string, i.e. "Hello"
+
+* Character Class: a set of characters with ASCII codes between 1-127
+
+* Token: points to a token, which is expected to lead back to this token on all paths that do not fail
+
+
+#### Tokens contain the following information pertinent to pattern matching:
+
+* ``node``: the pattern associated with this token
+
+* ``min``, ``max``: the minimum and maximum number of times this token may be consumed in matching before moving on to the following token (``next``)
+
+* ``next``: the subsequent token to be processed after sucessful consumption of this token
+
+* ``alt``: an alternative token to consume in place of this token if successful completion of pattern matching is found to not be possible following this token
+
+
+#### Consumption rules:
+
+* A literal can be consumed on an input buffer (string) if the string exactly matches the beginning of the buffer, and upon consumption the literal advances the buffer to the end of the matched string
+
+* A character class can be consumed on an input buffer if the first character in the buffer is in the character class, and upon consumption the character class advances the buffer one location
+
+* A token is consumed by consuming whatever its ``node`` points to on the current state of the input buffer
+
+
+#### FSM formation rules:
+
+1. A pattern is represented by an FSM consisting of tokens, literals and character classes, which are all linked together by tokens.
+
+2. No token may be referenced by a token which lies ahead of it along any path of ``next``'s and ``alt``'s, i.e. the graph must be acyclic along edges represented by the ``next`` and ``alt`` fields of the tokens
+
+3. Tokens which contain other tokens (i.e. a token whose ``node`` is also a token) require that that child token lead back to the parent on all matching paths (following any of ``next``, ``alt``, and ``node`` fields of tokens), and that no paths lead to termination (i.e. ``next = NULL``). Also, no token in the subgraph within the token may be a parent of the token (for example, ``node`` could not point to the token whose ``next`` is token, even if that would not cause any cycles or violate rule 2)
+
+4. If a token is an ``alt`` of some other token, then it cannot be referenced by any other token (as a ``next``, ``alt``, or ``node``), i.e. its reference count must be exactly 1
+
+5. No token may have a ``node`` value of NULL
+
+
+#### FSM iteration rules:
+
+1. A token may follow its ``next`` pointer if and only if it has been adjacently consumed at least "``min``" number of times and at most "``max``" times
+
+2. A token may follow its ``alt`` pointer if and only if it has not been consumed
+
+3. A match is found on an input buffer if some path through the FSM entirely consumes the buffer and ends on a ``NULL`` ``next`` node, i.e. the last token to consume the buffer to completion has a ``next`` value of ``NULL``
 
