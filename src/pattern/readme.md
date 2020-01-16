@@ -203,3 +203,14 @@ Patterns are implemented as a finite state machine made up of tokens and pattern
 
 3. A match is found on an input buffer if some path through the FSM entirely consumes the buffer and ends on a ``NULL`` ``next`` node, i.e. the last token to consume the buffer to completion has a ``next`` value of ``NULL``
 
+
+
+## FSM Optimization
+
+A generic pattern-matching FSM abiding by all of the above rules can be consolidated with ``pattern_consolidate``, which tries
+to make the FSM as small and compact as possible, by
+
+* Removing unecessary encapsulation (like a once-required token (i.e. 1\*1) with a ``node`` of type token)
+* Merging multiple adjacent strings into a large string
+* Merging multiple or-ed single-characters/character classes into one character class
+
