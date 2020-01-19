@@ -859,7 +859,7 @@ int main() {
 
     // test writing to a file
     {
-        const char path[] = "test_pattern.cbnf";
+        const char path[] = "test/test_pattern.cbnf";
 
         token_t *ret;
 

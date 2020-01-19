@@ -365,7 +365,6 @@ static void _pattern_pack(hashmap *idces, void* buffer) {
     void* loc;
 
     hashmap_for_each(idces, patt, patt_idx) {
-        printf("packing %p (%d, idx %d)\n", patt, patt_idx->offset, patt_idx->idx);
         loc = ((char*) buffer) + patt_idx->offset;
         switch (patt_type(patt)) {
             case TYPE_CC:
@@ -396,7 +395,7 @@ static void _pattern_pack(hashmap *idces, void* buffer) {
 int pattern_store(const char* path, token_t *patt) {
     hashmap idces;
     int patt_size;
-    int fd = open(path, O_CREAT, S_IRUSR | S_IWUSR);
+    int fd = open(path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
     // will point to temporary buffer which will store entire file contents,
     // so we only need to make one large write in the end
     void* buffer;
@@ -414,6 +413,8 @@ int pattern_store(const char* path, token_t *patt) {
         close(fd);
         return -1;
     }
+    token_count->idx = 0;
+    token_count->offset = 0;
 
     hash_init(&idces, &ptr_hash, &ptr_cmp);
 
@@ -429,6 +430,7 @@ int pattern_store(const char* path, token_t *patt) {
         else {
             _pattern_pack(&idces, buffer);
             write(fd, buffer, patt_size);
+            free(buffer);
         }
     }
 
