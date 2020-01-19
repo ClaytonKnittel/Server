@@ -368,6 +368,21 @@ static __inline int patt_type(pattern_t *patt) {
     return patt->type & TYPE_MASK;
 }
 
+// returns the size in bytes of the pattern (non-recursive)
+static __inline size_t patt_size(pattern_t* patt) {
+    switch (patt_type(patt)) {
+        case TYPE_CC:
+            return sizeof(char_class);
+        case TYPE_LITERAL:
+            return sizeof(literal) + patt->lit.length;
+        case TYPE_TOKEN:
+            return sizeof(token_t);
+        default:
+            return 0;
+    }
+}
+
+
 
 // add to the reference count of pattern by amt
 static __inline void patt_ref_add(pattern_t *patt, unsigned amt) {

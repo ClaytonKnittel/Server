@@ -25,6 +25,10 @@
 #define MAX(x, y) ((x) < (y) ? (y) : (x))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
+// rounds up to the nearest 2^order
+#define ROUND_UP(val, order) \
+    (((val) + (((order) << 1LU) - 1)) & ~(((order) << 1LU) - 1))
+
 /*
 #define malloc(size) \
     ({ \
@@ -44,6 +48,8 @@
         free(ptr); \
     }
 */
+
+
 
 
 // gives the character width of the decimal representation of

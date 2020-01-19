@@ -7,6 +7,7 @@
 
 
 #include "../hashmap.h"
+#include "../util.h"
 #include "match.h"
 
 
@@ -256,6 +257,18 @@ typedef struct idx_off {
     int offset;
 } idx_off_t;
 
+
+typedef struct cbnf_header {
+    // total number of tokens/patterns
+    int n_tokens;
+    // total size of this file (minus this header)
+    int tiny_pattern_size;
+    // total size of full pattern in memory (i.e. how much to malloc when
+    // reconstructing)
+    int pattern_size;
+} cbnf_header_t;
+
+
 // mirror of token_t struct, but stripped down be as small as possible and with
 // pointers replaced by ints (for indices)
 struct tiny_token {
@@ -293,6 +306,12 @@ static int tiny_patt_size(pattern_t* patt) {
     }
 }
 
+static void cbnf_header_add(cbnf_header_t* dst, cbnf_header_t* addend) {
+    dst->n_tokens += addend->n_tokens;
+    dst->tiny_pattern_size += addend->tiny_pattern_size;
+    dst->pattern_size += addend->pattern_size;
+}
+
 /*
  * helper for pattern_store, passes through all tokens/patterns in the pattern
  * and assigns them indices and offset in the file to be stored by associating
@@ -305,12 +324,12 @@ static int tiny_patt_size(pattern_t* patt) {
  * returns >= 0 on success (equal to the total number of bytes taken by whole
  * pattern) or -1 on failure
  */
-static int _pattern_map_create(pattern_t *patt, hashmap *idces,
+static cbnf_header_t _pattern_map_create(pattern_t *patt, hashmap *idces,
         idx_off_t* token_count) {
 
     idx_off_t* patt_idx;
-    int patt_size;
-    int ret = 0;
+    cbnf_header_t ret = { 0, 0, 0 };
+    cbnf_header_t tmp;
 
     // initialize patt_idx pointer for this pattern and test if we have already
     // visited this pattern (in which case we should skip it and return)
@@ -318,37 +337,42 @@ static int _pattern_map_create(pattern_t *patt, hashmap *idces,
     if (patt_idx == NULL) {
         fprintf(stderr, "Unable to malloc idx_off_t, reason: %s\n",
                 strerror(errno));
-        return -1;
+        ret.n_tokens = -1;
+        return ret;
     }
     if (hash_insert(idces, patt, patt_idx) != 0) {
         free(patt_idx);
-        return 0;
+        return ret;
     }
 
-    patt_size = tiny_patt_size(patt);
+    ret.n_tokens = 1;
+    ret.tiny_pattern_size = tiny_patt_size(patt);
+    // 8-byte alignment for when in memory
+    ret.pattern_size = ROUND_UP(patt_size(patt), 3);
 
     patt_idx->idx = token_count->idx;
     patt_idx->offset = token_count->offset;
     token_count->idx++;
-    token_count->offset += patt_size;
+    token_count->offset += ret.tiny_pattern_size;
 
+    tmp.n_tokens = 0;
     if (patt_type(patt) == TYPE_TOKEN) {
         token_t *token = &patt->token;
-        ret = _pattern_map_create(token->node, idces, token_count);
-        patt_size += ret;
-        if (ret >= 0 && token->next != NULL) {
-            ret = _pattern_map_create((pattern_t*) token->next, idces,
+        tmp = _pattern_map_create(token->node, idces, token_count);
+        cbnf_header_add(&ret, &tmp);
+        if (tmp.n_tokens >= 0 && token->next != NULL) {
+            tmp = _pattern_map_create((pattern_t*) token->next, idces,
                     token_count);
-            patt_size += ret;
+            cbnf_header_add(&ret, &tmp);
         }
-        if (ret >= 0 && token->alt != NULL) {
-            ret = _pattern_map_create((pattern_t*) token->alt, idces,
+        if (tmp.n_tokens >= 0 && token->alt != NULL) {
+            tmp = _pattern_map_create((pattern_t*) token->alt, idces,
                     token_count);
-            patt_size += ret;
+            cbnf_header_add(&ret, &tmp);
         }
     }
 
-    return (ret < 0) ? ret : patt_size;
+    return (tmp.n_tokens < 0) ? tmp : ret;
 }
 
 
@@ -394,7 +418,7 @@ static void _pattern_pack(hashmap *idces, void* buffer) {
  */
 int pattern_store(const char* path, token_t *patt) {
     hashmap idces;
-    int patt_size;
+    cbnf_header_t header;
     int fd = open(path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
     // will point to temporary buffer which will store entire file contents,
     // so we only need to make one large write in the end
@@ -418,18 +442,20 @@ int pattern_store(const char* path, token_t *patt) {
 
     hash_init(&idces, &ptr_hash, &ptr_cmp);
 
-    patt_size = _pattern_map_create((pattern_t*) patt, &idces, token_count);
+    header = _pattern_map_create((pattern_t*) patt, &idces, token_count);
 
-    if (patt_size > 0) {
+    if (header.n_tokens > 0) {
         // if recursive call succeeded, then we can save to file
-        buffer = malloc(patt_size);
+        size_t size = sizeof(cbnf_header_t) + header.tiny_pattern_size;
+        buffer = malloc(size);
         if (buffer == NULL) {
-            fprintf(stderr, "Unable to malloc %d bytes for pattern buffer, "
-                    "reason: %s\n", patt_size, strerror(errno));
+            fprintf(stderr, "Unable to malloc %lu bytes for pattern buffer, "
+                    "reason: %s\n", size, strerror(errno));
         }
         else {
-            _pattern_pack(&idces, buffer);
-            write(fd, buffer, patt_size);
+            *((cbnf_header_t*) buffer) = header;
+            _pattern_pack(&idces, ((char*) buffer) + sizeof(cbnf_header_t));
+            write(fd, buffer, size);
             free(buffer);
         }
     }
@@ -437,15 +463,65 @@ int pattern_store(const char* path, token_t *patt) {
     hash_free(&idces);
     free(token_count);
     close(fd);
-    return patt_size < 0 ? patt_size : 0;;
+    return (header.n_tokens <= 0) ? -1 : 0;
 }
 
 
+
+static void _pattern_reconstruct(token_t *patt, pattern_t** idx_to_ptrs) {
+    // TODO need to resolve iteratively, on second pass resolve idx references
+}
+
 token_t* pattern_load(const char* path) {
-    token_t *ret = NULL;
+    token_t *patt = NULL;
+    int fd = open(path, O_RDONLY);
+    cbnf_header_t header;
+
+    // single large buffer allocated for entire pattern
+    void* patt_region;
+
+    // "associative array" from indices to actual pointers
+    pattern_t** idx_to_ptrs;
+
+    if (fd == -1) {
+        fprintf(stderr, "Could not open file %s, reason: %s", path,
+                strerror(errno));
+        return NULL;
+    }
+
+    if (read(fd, &header, sizeof(cbnf_header_t)) != sizeof(cbnf_header_t)) {
+        fprintf(stderr, "cbnf file less than minimum required size "
+                "(%lu bytes)\n", sizeof(cbnf_header_t));
+        close(fd);
+        return NULL;
+    }
+
+    printf("tokens: %d\nsmall size: %d\nbig size: %d\n", header.n_tokens,
+            header.tiny_pattern_size, header.pattern_size);
+
+    patt_region = malloc(header.pattern_size);
+    if (patt_region == NULL) {
+        fprintf(stderr, "Could not malloc %d bytes, reason: %s\n",
+                header.pattern_size, strerror(errno));
+        close(fd);
+        return NULL;
+    }
+
+    idx_to_ptrs = calloc(header.n_tokens, sizeof(pattern_t*));
+    if (idx_to_ptrs == NULL) {
+        fprintf(stderr, "Could not malloc %d bytes, reason: %s\n",
+                header.n_tokens * sizeof(pattern_t*), strerror(errno));
+        free(patt_region);
+        close(fd);
+        return NULL;
+    }
+
+    _pattern_reconstruct();
 
 
-    return ret;
+    free(idx_to_ptrs);
+    close(fd);
+    return patt;
 }
 
 

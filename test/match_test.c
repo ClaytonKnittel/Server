@@ -874,6 +874,10 @@ int main() {
         assert(pattern_store(path, ret), 0);
         pattern_free(ret);
 
+        ret = pattern_load(path);
+        assert_neq((size_t) ret, (size_t) NULL);
+        pattern_free(ret);
+
         /* match_t match;
         assert(pattern_match(ret, "my dog goes", 1, &match), 0);
         assert(match.so, 3);
