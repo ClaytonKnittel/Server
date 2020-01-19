@@ -857,6 +857,33 @@ int main() {
     }
 
 
+    // test writing to a file
+    {
+        const char path[] = "test_pattern.cbnf";
+
+        token_t *ret;
+
+        char bnf[] =
+            " rule = \"my \" { \"dog\" } \" goes\"";
+
+        ret = bnf_parseb(bnf, sizeof(bnf) - 1);
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        // save to file
+        assert(pattern_store(path, ret), 0);
+        pattern_free(ret);
+
+        /* match_t match;
+        assert(pattern_match(ret, "my dog goes", 1, &match), 0);
+        assert(match.so, 3);
+        assert(match.eo, 6);
+
+        pattern_free(ret);*/
+
+    }
+
+
     fprintf(stderr, P_GREEN "All match tests passed" P_RESET "\n");
     return 0;
 }

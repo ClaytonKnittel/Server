@@ -292,6 +292,29 @@ void pattern_free(token_t *patt);
 
 
 /*
+ * stores a pattern in a file in binary format, with extension .cbnf (compiled
+ * bnf), and is retrievable via pattern_load
+ *
+ * returns 0 on success, or -1 on error with errno set
+ */
+int pattern_store(const char* path, token_t *patt);
+
+/*
+ * reconstructs a pattern from the file into memory (can be called multiple
+ * times on the same file to create duplicates of the pattern) and returns
+ * a pointer to allocated memory for the pattern (which must later be freed
+ * by the caller with pattern_free)
+ */
+token_t* pattern_load(const char* path);
+
+
+
+
+
+// -------------------- pattern internal ops -------------------
+
+
+/*
  * consolidate the given pattern as much as possible, by potentially
  * merging multiple tokens into one, getting rid of redundant tokens,
  * etc.

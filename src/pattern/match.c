@@ -1,5 +1,9 @@
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 
 #include "../hashmap.h"
@@ -241,6 +245,209 @@ void pattern_free(token_t *token) {
     _pattern_free(token);
     free(token);
 }
+
+
+
+typedef struct idx_off {
+    // index of this token (where it will appear in the file, also the value
+    // to replace pointers to this with in file)
+    int idx;
+    // byte offset of the beginning of this pattern_t in the file
+    int offset;
+} idx_off_t;
+
+// mirror of token_t struct, but stripped down be as small as possible and with
+// pointers replaced by ints (for indices)
+struct tiny_token {
+    int flags;
+
+    // no need for tmp
+
+    // indices of these 3 corresponding pointers
+    int node, alt, next;
+
+    struct {
+        int min, max;
+    };
+};
+
+// only need match_idx for capturing tokens
+struct tiny_capturing_token {
+    struct tiny_token base;
+    unsigned match_idx;
+};
+
+
+static int tiny_patt_size(pattern_t* patt) {
+    switch (patt_type(patt)) {
+        case TYPE_CC:
+            return sizeof(char_class);
+        case TYPE_LITERAL:
+            return sizeof(literal) + patt->lit.length;
+        case TYPE_TOKEN:
+            return token_captures(&patt->token) ?
+                sizeof(struct tiny_capturing_token) :
+                sizeof(struct tiny_token);
+        default:
+            return 0;
+    }
+}
+
+/*
+ * helper for pattern_store, passes through all tokens/patterns in the pattern
+ * and assigns them indices and offset in the file to be stored by associating
+ * a dynamically allocated idx_off_t with each toekn/pattern
+ *
+ * token_count points to a static counter used to assign indices and offsets to
+ * patterns (these indices align with the locations the file that the tokens
+ * will be stored, and the offsets tell where in the file it should be stored)
+ *
+ * returns >= 0 on success (equal to the total number of bytes taken by whole
+ * pattern) or -1 on failure
+ */
+static int _pattern_map_create(pattern_t *patt, hashmap *idces,
+        idx_off_t* token_count) {
+
+    idx_off_t* patt_idx;
+    int patt_size;
+    int ret = 0;
+
+    // initialize patt_idx pointer for this pattern and test if we have already
+    // visited this pattern (in which case we should skip it and return)
+    patt_idx = (idx_off_t*) malloc(sizeof(idx_off_t));
+    if (patt_idx == NULL) {
+        fprintf(stderr, "Unable to malloc idx_off_t, reason: %s\n",
+                strerror(errno));
+        return -1;
+    }
+    if (hash_insert(idces, patt, patt_idx) != 0) {
+        free(patt_idx);
+        return 0;
+    }
+
+    patt_size = tiny_patt_size(patt);
+
+    patt_idx->idx = token_count->idx;
+    patt_idx->offset = token_count->offset;
+    token_count->idx++;
+    token_count->offset += patt_size;
+
+    if (patt_type(patt) == TYPE_TOKEN) {
+        token_t *token = &patt->token;
+        ret = _pattern_map_create(token->node, idces, token_count);
+        patt_size += ret;
+        if (ret >= 0 && token->next != NULL) {
+            ret = _pattern_map_create((pattern_t*) token->next, idces,
+                    token_count);
+            patt_size += ret;
+        }
+        if (ret >= 0 && token->alt != NULL) {
+            ret = _pattern_map_create((pattern_t*) token->alt, idces,
+                    token_count);
+            patt_size += ret;
+        }
+    }
+
+    return (ret < 0) ? ret : patt_size;
+}
+
+
+/*
+ * packs the pattern into the buffer by iterating through the entries in idces
+ * and writing to the proper locations in the buffer
+ *
+ * also frees all dynamically allocated idx_off_t data associated with each
+ * pattern in the hashmap
+ */
+static void _pattern_pack(hashmap *idces, void* buffer) {
+    pattern_t* patt;
+    idx_off_t* patt_idx;
+    void* loc;
+
+    hashmap_for_each(idces, patt, patt_idx) {
+        printf("packing %p (%d, idx %d)\n", patt, patt_idx->offset, patt_idx->idx);
+        loc = ((char*) buffer) + patt_idx->offset;
+        switch (patt_type(patt)) {
+            case TYPE_CC:
+                __builtin_memcpy(loc, patt, sizeof(char_class));
+                break;
+            case TYPE_LITERAL:
+                memcpy(loc, patt, sizeof(literal) + patt->lit.length);
+                break;
+            case TYPE_TOKEN:
+                __builtin_memcpy(loc, patt, token_captures(&patt->token) ?
+                        sizeof(struct tiny_capturing_token) :
+                        sizeof(struct tiny_token));
+                break;
+        }
+        free(patt_idx);
+    }
+}
+
+/*
+ * stored in following format (binary)
+ *
+ * total size of pattern in bytes (8 bytes)
+ * pattern data (all tokens/patterns follow sequentially, each tightly packed
+ *     referencing each other by index in this list (i.e. 0 would indicate a
+ *     pointer to the first token in the file))
+ *
+ */
+int pattern_store(const char* path, token_t *patt) {
+    hashmap idces;
+    int patt_size;
+    int fd = open(path, O_CREAT, S_IRUSR | S_IWUSR);
+    // will point to temporary buffer which will store entire file contents,
+    // so we only need to make one large write in the end
+    void* buffer;
+
+    if (fd == -1) {
+        fprintf(stderr, "Could not create file %s, reason: %s", path,
+                strerror(errno));
+        return fd;
+    }
+
+    idx_off_t* token_count = (idx_off_t*) malloc(sizeof(idx_off_t));
+    if (token_count == NULL) {
+        fprintf(stderr, "Unable to malloc idx_off_t, reason: %s\n",
+                strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    hash_init(&idces, &ptr_hash, &ptr_cmp);
+
+    patt_size = _pattern_map_create((pattern_t*) patt, &idces, token_count);
+
+    if (patt_size > 0) {
+        // if recursive call succeeded, then we can save to file
+        buffer = malloc(patt_size);
+        if (buffer == NULL) {
+            fprintf(stderr, "Unable to malloc %d bytes for pattern buffer, "
+                    "reason: %s\n", patt_size, strerror(errno));
+        }
+        else {
+            _pattern_pack(&idces, buffer);
+            write(fd, buffer, patt_size);
+        }
+    }
+
+    hash_free(&idces);
+    free(token_count);
+    close(fd);
+    return patt_size < 0 ? patt_size : 0;;
+}
+
+
+token_t* pattern_load(const char* path) {
+    token_t *ret = NULL;
+
+
+    return ret;
+}
+
+
+
 
 
 /*
