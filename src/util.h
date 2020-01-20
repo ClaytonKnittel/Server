@@ -26,7 +26,7 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 // rounds up to the nearest 2^order
-#define ROUND_UP(val, order) \
+#define ROUND_UP_ORD(val, order) \
     (((val) + (((order) << 1LU) - 1)) & ~(((order) << 1LU) - 1))
 
 /*

@@ -870,6 +870,8 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
 
+        bnf_print(ret);
+
         // save to file
         assert(pattern_store(path, ret), 0);
         pattern_free(ret);
