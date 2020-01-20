@@ -589,9 +589,9 @@ static int _pattern_resolve(const cbnf_header_t header,
             token = &patt->token;
 
             // resolve pointers for this token
-            token->node = idx_to_ptrs[(int) token->node];
-            token->next = (token_t*) idx_to_ptrs[(int) token->next];
-            token->alt = (token_t*) idx_to_ptrs[(int) token->alt];
+            token->node = idx_to_ptrs[(int) (long) token->node];
+            token->next = (token_t*) idx_to_ptrs[(int) (long) token->next];
+            token->alt = (token_t*) idx_to_ptrs[(int) (long) token->alt];
         }
         patt = (pattern_t*) PTR_ADD(patt, size);
     }
