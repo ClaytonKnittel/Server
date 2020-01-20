@@ -373,8 +373,6 @@ static cbnf_header_t _pattern_map_create(pattern_t *patt, hashmap *idces,
         }
     }
 
-    printf("%p -> %p (idx %d, off %d)\n", patt, patt_idx, patt_idx->idx, patt_idx->offset);
-
     return (tmp.n_tokens < 0) ? tmp : ret;
 }
 
@@ -398,7 +396,6 @@ static void _pattern_pack(hashmap *idces, void* buffer) {
             // don't need to do anything for NULL entry
             continue;
         }
-        printf("on idx %d, offset %d\n", patt_idx->idx, patt_idx->offset);
         loc = ((char*) buffer) + patt_idx->offset;
         switch (patt_type(patt)) {
             case TYPE_CC:
@@ -406,23 +403,21 @@ static void _pattern_pack(hashmap *idces, void* buffer) {
                 break;
             case TYPE_LITERAL:
                 memcpy(loc, patt, sizeof(literal) + patt->lit.length);
-                printf("literal \"%.*s\"\n", patt->lit.length, patt->lit.word);
                 break;
             case TYPE_TOKEN:
-                __builtin_memcpy(loc, patt, token_captures(&patt->token) ?
-                        sizeof(struct tiny_capturing_token) :
-                        sizeof(struct tiny_token));
                 t = (struct tiny_token*) loc;
+
                 t->flags = patt->token.flags;
-                printf("token %p, (%p, %p, %p)\n", patt, patt->token.node, patt->token.next, patt->token.alt);
                 t->node = ((idx_off_t*) hash_get(idces, patt->token.node))->idx;
                 t->next = ((idx_off_t*) hash_get(idces, patt->token.next))->idx;
                 t->alt = ((idx_off_t*) hash_get(idces, patt->token.alt))->idx;
                 t->min = patt->token.min;
                 t->max = patt->token.max;
-                printf("token:\n\tflags: %d\n\tnode: %d\n\tnext: %d\n"
-                        "\talt: %d\n\trange: [%d, %d]\n", t->flags, t->node,
-                        t->next, t->alt, t->min, t->max);
+
+                if (token_captures(&patt->token)) {
+                    ((struct tiny_capturing_token*) t)->match_idx = patt->token.match_idx;
+                }
+
                 break;
         }
     }
@@ -506,10 +501,11 @@ int pattern_store(const char* path, token_t *patt) {
  * indices to pointers
  */
 static int _pattern_resolve(const cbnf_header_t header,
-        pattern_t** idx_to_ptrs, void* patt_region, void* file_region) {
+        pattern_t** idx_to_ptrs, void* const patt_region,
+        void* const file_region) {
 
-    void* file_end = ((char*) file_region) + header.tiny_pattern_size;
-    void* patt_end = ((char*) patt_region) + header.pattern_size;
+    void* const file_end = ((char*) file_region) + header.tiny_pattern_size;
+    void* const patt_end = ((char*) patt_region) + header.pattern_size;
 
     // used to track ordinal of current token (i.e. index in idx_to_ptrs array)
     // idx 0 is for NULL
@@ -545,6 +541,9 @@ static int _pattern_resolve(const cbnf_header_t header,
                 break;
             case TYPE_LITERAL:
                 memcpy(patt, tiny, size);
+                // need to round up to next 8-byte aligned size, as we require
+                // pointers to be 8-byte aligned
+                size = ROUND_UP_ORD(size, 3);
                 break;
             case TYPE_TOKEN:
                 tiny_token = (struct tiny_token*) tiny;
@@ -572,18 +571,20 @@ static int _pattern_resolve(const cbnf_header_t header,
                 return -1;
         }
         idx++;
-        tiny = ((char*) tiny) + tiny_size;
-        patt = (pattern_t*) (((char*) patt) + size);
+        tiny = PTR_ADD(tiny, tiny_size);
+        patt = (pattern_t*) PTR_ADD(patt, size);
     }
 
     if (tiny != file_end || patt != patt_end) {
         fprintf(stderr, "file structure corrupted or header fields incorrect, "
-                "content does not reach the size stated in header fields\n");
+                "content does not reach the size stated in header fields (%p to %p)\n", patt, patt_end);
         return -1;
     }
 
+    patt = patt_region;
     while ((size_t) patt < (size_t) patt_end) {
         size = patt_size(patt);
+        size = ROUND_UP_ORD(size, 3);
         if (patt_type(patt) == TYPE_TOKEN) {
             token = &patt->token;
 
@@ -592,6 +593,7 @@ static int _pattern_resolve(const cbnf_header_t header,
             token->next = (token_t*) idx_to_ptrs[(int) token->next];
             token->alt = (token_t*) idx_to_ptrs[(int) token->alt];
         }
+        patt = (pattern_t*) PTR_ADD(patt, size);
     }
 
     return 0;
@@ -599,7 +601,6 @@ static int _pattern_resolve(const cbnf_header_t header,
 
 
 token_t* pattern_load(const char* path) {
-    token_t *patt = NULL;
     int fd = open(path, O_RDONLY);
     cbnf_header_t header;
 
@@ -624,9 +625,6 @@ token_t* pattern_load(const char* path) {
         close(fd);
         return NULL;
     }
-
-    printf("tokens: %d\nsmall size: %d\nbig size: %d\n", header.n_tokens,
-            header.tiny_pattern_size, header.pattern_size);
 
     file_region = mmap(NULL, header.tiny_pattern_size, PROT_READ,
             MAP_PRIVATE, fd, 0);
@@ -665,7 +663,7 @@ token_t* pattern_load(const char* path) {
     free(idx_to_ptrs);
     munmap(file_region, header.tiny_pattern_size);
     close(fd);
-    return patt;
+    return (token_t*) patt_region;
 }
 
 

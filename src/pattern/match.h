@@ -308,6 +308,15 @@ int pattern_store(const char* path, token_t *patt);
 token_t* pattern_load(const char* path);
 
 
+/*
+ * must be called in place of pattern_free when deallocating a pattern
+ * constructed with pattern_load (as one large memory region is allocated
+ * for the whole pattern, rather than there being a region for each token)
+ */
+static __inline void pattern_unload(token_t *patt) {
+    free(patt);
+}
+
 
 
 

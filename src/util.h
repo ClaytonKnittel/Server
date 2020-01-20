@@ -29,6 +29,10 @@
 #define ROUND_UP_ORD(val, order) \
     (((val) + (((order) << 1LU) - 1)) & ~(((order) << 1LU) - 1))
 
+
+#define PTR_ADD(ptr, amt) \
+    ((void*) (((char*) (ptr)) + amt))
+
 /*
 #define malloc(size) \
     ({ \

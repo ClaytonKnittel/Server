@@ -870,22 +870,19 @@ int main() {
         assert(errno, 0);
         assert_neq((long) ret, (long) NULL);
 
-        bnf_print(ret);
-
         // save to file
         assert(pattern_store(path, ret), 0);
         pattern_free(ret);
 
         ret = pattern_load(path);
         assert_neq((size_t) ret, (size_t) NULL);
-        pattern_free(ret);
 
-        /* match_t match;
+        match_t match;
         assert(pattern_match(ret, "my dog goes", 1, &match), 0);
         assert(match.so, 3);
         assert(match.eo, 6);
 
-        pattern_free(ret);*/
+        pattern_unload(ret);
 
     }
 
