@@ -68,4 +68,5 @@ $(ODIR)/$(TEST_FOLDER)/%.o: $(TEST_FOLDER)/%.c
 
 .PHONY: clean
 clean:
-	rm -f $(ODIR)/*.o $(ODIR)/*.d $(ODIR)/$(TEST_FOLDER)/*.o $(ODIR)/$(TEST_FOLDER)/*.d $(EXE) $(TEXES)
+	find $(ODIR) -type f -name '*.[od]' -delete
+	rm -f $(EXE) $(TEXES)
