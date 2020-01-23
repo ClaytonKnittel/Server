@@ -884,6 +884,38 @@ int main() {
 
         pattern_unload(ret);
 
+
+        // test large write to file
+        ret = bnf_parsef("grammars/http_header.bnf");
+        assert(errno, 0);
+        assert_neq((long) ret, (long) NULL);
+
+        assert(pattern_store(path, ret), 0);
+        pattern_free(ret);
+
+        ret = pattern_load(path);
+        assert_neq((size_t) ret, (size_t) NULL);
+
+        match_t matches[6];
+
+        assert(pattern_match(ret,
+                    "http://clayton@www.google.com/some/file/a.txt?var=1",
+                    6, matches), 0);
+
+        assert(matches[0].so, -1); // fragment
+        assert(matches[1].so, 0); // scheme
+        assert(matches[1].eo, 4);
+        assert(matches[2].so, 29); // abs uri
+        assert(matches[2].eo, 45);
+        assert(matches[3].so, -1); // rel uri
+        assert(matches[4].so, 7); // authority
+        assert(matches[4].eo, 29);
+        assert(matches[5].so, 46); // query vars
+        assert(matches[5].eo, 51);
+
+        pattern_unload(ret);
+
+
     }
 
 

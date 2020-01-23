@@ -121,6 +121,14 @@ static const char * const method_opts[] = {
 
 // -------------------- static globals --------------------
 
+
+#define LOCKED 0
+#define UNLOCKED 1
+
+// locks access to http_header for parsing, as pattern_match is not thread-
+// safe
+static volatile int http_header_lock;
+
 static token_t *http_header;
 
 struct http_header_match {
@@ -140,6 +148,20 @@ struct http_header_match {
 
 
 static hashmap extensions;
+
+
+static __inline void acq_http_header_lock() {
+    int unlocked = UNLOCKED;
+    // spin until unlocked
+    while (!__atomic_compare_exchange_n(&http_header_lock, &unlocked,
+                LOCKED, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        unlocked = UNLOCKED;
+    }
+}
+
+static __inline void rel_http_header_lock() {
+    http_header_lock = UNLOCKED;
+}
 
 
 // align with indices in type vector of struct mime_type, 22 types, so need
@@ -247,6 +269,7 @@ static void init_extensions() {
 
 
 int http_init() {
+    http_header_lock = UNLOCKED;
     http_header = bnf_parsef("grammars/http_header.bnf");
     if (http_header == NULL) {
         fprintf(stderr, P_RED "http initialization failed\n" P_RESET);
@@ -440,29 +463,31 @@ static __inline int parse_uri(struct http *p, char *buf) {
 
     struct http_header_match match;
 
+    acq_http_header_lock();
     int ret = pattern_match(http_header, buf,
             sizeof(struct http_header_match) / sizeof(match_t),
             (match_t*) &match);
+    rel_http_header_lock();
 
     vprintf("URI: %s\n", buf);
 
     if (ret == MATCH_FAIL) {
         // badly formatted uri
         p->fd = -1;
-        printf("match fail\n");
+        vprintf("match fail\n");
         return -1;
     }
     if (match.abs_uri.so == -1) {
         // no uri requested
         p->fd = -1;
-        printf("no abs uri\n");
+        vprintf("no abs uri\n");
         return -1;
     }
     if (strstr(buf, "../") != NULL) {
         // not allowed to use ../ in URI's, otherwise could request data
         // outside of the directory being served
         p->fd = -1;
-        printf("../ found\n");
+        vprintf("../ found\n");
         return -1;
     }
 

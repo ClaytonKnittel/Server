@@ -153,8 +153,15 @@ struct http {
     off64_t offset;
 };
 
+/*
+ * to be called once per process, initializes all global data used by the http
+ * parser
+ */
 int http_init();
 
+/*
+ * to be called once per process, inverse of http_init
+ */
 void http_exit();
 
 
